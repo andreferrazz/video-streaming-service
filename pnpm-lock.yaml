@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  webapp:
     devDependencies:
       '@sveltejs/adapter-auto':
         specifier: 8.0.1
