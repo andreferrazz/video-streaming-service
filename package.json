@@ -5,6 +5,8 @@
 	"scripts": {
 		"dev": "pnpm --filter webapp dev",
 		"build": "pnpm --filter webapp build",
-		"check": "pnpm --filter webapp check"
+		"check": "pnpm --filter webapp check",
+    "stack:up": "docker compose -f compose.yaml -f compose.dev.yaml up -d --wait",
+    "stack:down": "docker compose -f compose.yaml -f compose.dev.yaml down"
 	}
 }
