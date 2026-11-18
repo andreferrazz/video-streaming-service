@@ -1,0 +1,23 @@
+{
+	"name": "shared",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./db": "./src/db/index.ts"
+	},
+	"scripts": {
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"drizzle-orm": "0.45.4",
+		"postgres": "4.1.1"
+	},
+	"devDependencies": {
+		"@types/node": "26.6.6",
+		"drizzle-kit": "0.31.11",
+		"typescript": "6.0.3"
+	}
+}
