@@ -2,7 +2,13 @@ import { createWriteStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+	DeleteObjectCommand,
+	GetObjectCommand,
+	ListObjectsV2Command,
+	PutObjectCommand,
+	S3Client
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 
 export interface StorageConfig {
@@ -100,4 +106,35 @@ export async function openObject(storage: Storage, key: string) {
 		if (cause instanceof Error && cause.name === 'NoSuchKey') return null;
 		throw cause;
 	}
+}
+
+/** Remove everything stored for a video: the original, the poster and all HLS files. */
+export async function deleteVideoFiles(storage: Storage, videoId: string) {
+	const keys = [sourceKey(videoId), posterKey(videoId)];
+
+	// Listing returns at most 1000 keys at a time, so keep asking until there are no more.
+	let token: string | undefined;
+	do {
+		const page = await storage.client.send(
+			new ListObjectsV2Command({
+				Bucket: storage.bucket,
+				Prefix: hlsKey(videoId, ''),
+				ContinuationToken: token
+			})
+		);
+		for (const object of page.Contents ?? []) {
+			if (object.Key) keys.push(object.Key);
+		}
+		token = page.NextContinuationToken;
+	} while (token);
+
+	// Deleting a key that does not exist is not an error, so missing files are fine.
+	const queue = [...keys];
+	await Promise.all(
+		Array.from({ length: 8 }, async () => {
+			for (let key = queue.pop(); key; key = queue.pop()) {
+				await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: key }));
+			}
+		})
+	);
 }

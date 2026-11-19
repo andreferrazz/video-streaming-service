@@ -1,8 +1,24 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+
+	// While something is still moving through the pipeline, reload the list every two seconds.
+	const busy = $derived(
+		data.videos.some((video) => ['uploading', 'queued', 'processing'].includes(video.status))
+	);
+
+	$effect(() => {
+		if (!busy) return;
+		const timer = setInterval(invalidateAll, 2000);
+		return () => clearInterval(timer);
+	});
 </script>
+
+<svelte:head>
+	<title>Admin</title>
+</svelte:head>
 
 <h1>Admin</h1>
 
@@ -26,13 +42,7 @@
 		<tbody>
 			{#each data.videos as video (video.id)}
 				<tr>
-					<td>
-						{#if video.status === 'ready'}
-							<a href="/watch/{video.slug}">{video.title}</a>
-						{:else}
-							{video.title}
-						{/if}
-					</td>
+					<td><a href="/admin/videos/{video.id}">{video.title}</a></td>
 					<td>
 						{#if video.status === 'processing'}
 							processing ({video.progress}%)
@@ -45,6 +55,7 @@
 					<td>{video.publishedAt ? 'Yes' : 'No'}</td>
 					<td>
 						{#if video.status === 'ready'}
+							<a href="/watch/{video.slug}">Watch</a>
 							<form method="POST" action={video.publishedAt ? '?/unpublish' : '?/publish'}>
 								<input type="hidden" name="id" value={video.id} />
 								<button>{video.publishedAt ? 'Unpublish' : 'Publish'}</button>
@@ -56,3 +67,9 @@
 		</tbody>
 	</table>
 {/if}
+
+<style>
+	td form {
+		display: inline;
+	}
+</style>
