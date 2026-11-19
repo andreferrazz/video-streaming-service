@@ -6,6 +6,8 @@
 
 <h1>Admin</h1>
 
+<p><a href="/admin/upload">Upload a video</a></p>
+
 <form method="POST" action="?/logout">
 	<button>Log out</button>
 </form>
