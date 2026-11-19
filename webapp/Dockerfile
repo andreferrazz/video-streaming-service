@@ -14,16 +14,17 @@ COPY shared shared
 COPY webapp webapp
 # The build checks that every variable in src/env.ts is set. These placeholders
 # satisfy that check and nothing more: values are read when the server starts,
-# so none of them end up in the built files or in the final image.
-ENV DATABASE_URL=postgres://placeholder \
+# so none of them end up in the built files. They are set on this one command,
+# not with ENV, so they are not recorded in any image layer either.
+RUN DATABASE_URL=postgres://placeholder \
 	S3_ENDPOINT=http://placeholder \
 	S3_REGION=placeholder \
 	S3_BUCKET=placeholder \
 	S3_ACCESS_KEY_ID=placeholder \
 	S3_SECRET_ACCESS_KEY=placeholder \
 	ADMIN_PASSWORD=placeholder \
-	SESSION_SECRET=placeholder-placeholder-placeholder
-RUN pnpm --filter webapp build
+	SESSION_SECRET=placeholder-placeholder-placeholder \
+	pnpm --filter webapp build
 
 # Only what the built server needs at runtime.
 FROM base AS deps
