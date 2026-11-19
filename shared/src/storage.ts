@@ -79,3 +79,25 @@ export async function uploadFile(storage: Storage, key: string, path: string, co
 		new PutObjectCommand({ Bucket: storage.bucket, Key: key, Body: body, ContentType: contentType })
 	);
 }
+
+/**
+ * Open an object for reading as a web stream, or return null if it does not
+ * exist. Used to pass playlists and segments straight through to the browser.
+ */
+export async function openObject(storage: Storage, key: string) {
+	try {
+		const response = await storage.client.send(
+			new GetObjectCommand({ Bucket: storage.bucket, Key: key })
+		);
+		if (!response.Body) return null;
+
+		return {
+			body: response.Body.transformToWebStream(),
+			contentType: response.ContentType ?? 'application/octet-stream',
+			contentLength: response.ContentLength
+		};
+	} catch (cause) {
+		if (cause instanceof Error && cause.name === 'NoSuchKey') return null;
+		throw cause;
+	}
+}
