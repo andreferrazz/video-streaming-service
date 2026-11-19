@@ -64,6 +64,22 @@ importers:
         specifier: 8.3.8
         version: 8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(tsx@4.23.15)
 
+  worker:
+    dependencies:
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(postgres@4.1.1)
+      shared:
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
 packages:
 
   '@aws-sdk/checksums@3.1002.5':

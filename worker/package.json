@@ -1,0 +1,19 @@
+{
+	"name": "worker",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "node --env-file=../.env src/main.ts",
+		"start": "node src/main.ts",
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"drizzle-orm": "0.45.4",
+		"shared": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "26.6.6",
+		"typescript": "6.0.3"
+	}
+}

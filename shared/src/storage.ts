@@ -1,4 +1,8 @@
-import { S3Client } from '@aws-sdk/client-s3';
+import { createWriteStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 
 export interface StorageConfig {
@@ -49,4 +53,29 @@ export async function uploadStream(
 	});
 
 	await upload.done();
+}
+
+/** Folder that holds the HLS playlists and segments of a video. */
+export function hlsKey(videoId: string, file: string) {
+	return `hls/${videoId}/${file}`;
+}
+
+export function posterKey(videoId: string) {
+	return `posters/${videoId}.jpg`;
+}
+
+export async function downloadToFile(storage: Storage, key: string, path: string) {
+	const response = await storage.client.send(
+		new GetObjectCommand({ Bucket: storage.bucket, Key: key })
+	);
+	if (!response.Body) throw new Error(`Object ${key} has no body`);
+	await pipeline(response.Body as Readable, createWriteStream(path));
+}
+
+export async function uploadFile(storage: Storage, key: string, path: string, contentType: string) {
+	// Segments are a few megabytes each, so reading one into memory is fine.
+	const body = await readFile(path);
+	await storage.client.send(
+		new PutObjectCommand({ Bucket: storage.bucket, Key: key, Body: body, ContentType: contentType })
+	);
 }
