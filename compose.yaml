@@ -30,10 +30,28 @@ services:
     restart: unless-stopped
     environment:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?set GARAGE_RPC_SECRET}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?set GARAGE_ADMIN_TOKEN}
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
+
+  # Prepares Garage on every deploy: storage role, bucket and the app's access
+  # key. It only changes anything the first time; after that each step is skipped.
+  garage-init:
+    image: ghcr.io/andreferrazz/video-streaming-service-worker:${IMAGE_TAG:-main}
+    pull_policy: always
+    command: ['node', '../shared/src/garage-init.ts']
+    restart: 'no'
+    environment:
+      <<: *app-env
+      GARAGE_ADMIN_URL: http://garage:3903
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?set GARAGE_ADMIN_TOKEN}
+      # Disk space Garage may use, in gigabytes. Read only on the first deploy.
+      GARAGE_CAPACITY_GB: ${GARAGE_CAPACITY_GB:-100}
+    depends_on:
+      garage:
+        condition: service_started
 
   # Runs once per deploy and exits; the apps wait for it to succeed.
   migrate:
@@ -62,8 +80,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      garage:
-        condition: service_started
+      garage-init:
+        condition: service_completed_successfully
 
   worker:
     image: ghcr.io/andreferrazz/video-streaming-service-worker:${IMAGE_TAG:-main}
@@ -73,8 +91,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      garage:
-        condition: service_started
+      garage-init:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
