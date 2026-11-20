@@ -14,6 +14,7 @@ export const load: PageServerLoad = async () => {
 			status: videos.status,
 			progress: videos.progress,
 			error: videos.error,
+			durationSeconds: videos.durationSeconds,
 			publishedAt: videos.publishedAt
 		})
 		.from(videos)
