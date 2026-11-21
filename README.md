@@ -66,7 +66,7 @@ the bucket.
 | **webapp** | Serves every page, receives uploads and streams them into storage, and streams playlists, segments and posters back out to players. |
 | **worker** | Has no web server. Polls for queued videos, transcodes each with ffmpeg and stores the result. |
 | **Postgres** | One `videos` table. Its `status` column doubles as the job queue. |
-| **Garage** | Holds the original uploads, the HLS output and the posters in one private bucket. |
+| **Garage** | Holds the original uploads, the HLS output and the posters in one private bucket. Replaceable by any S3-compatible storage; see [docs/storage.md](docs/storage.md). |
 | **migrate** | Applies pending database migrations, then exits. The apps wait for it. |
 | **garage-init** | Gives Garage its storage role, creates the bucket and registers the access key, then exits. Skips whatever is already done. |
 
@@ -188,6 +188,7 @@ video, wait for it to become ready, and publish it.
 | `pnpm check` | Type-check the web app |
 | `pnpm --filter shared check` | Type-check the shared package |
 | `pnpm --filter worker check` | Type-check the worker |
+| `pnpm --filter shared storage:check` | Run every storage operation against the configured S3 server |
 | `pnpm build` | Production build of the web app |
 | `pnpm --filter shared db:generate` | Create a migration after changing the schema |
 | `pnpm --filter shared db:migrate` | Apply migrations to the local database |
@@ -203,7 +204,9 @@ Compose service's environment on the server.
 | `GARAGE_RPC_SECRET` | Garage | Garage's internal secret, 64 hex characters |
 | `GARAGE_ADMIN_TOKEN` | Garage, garage-init | Protects Garage's admin API |
 | `DATABASE_URL` | webapp, worker | Postgres connection string. Local only: on the server Compose builds it |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | webapp, worker | Where the bucket is. Local only: fixed in `compose.yaml` on the server |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | webapp, worker | Where the bucket is. Local only: on the server Compose supplies them |
+| `S3_FORCE_PATH_STYLE` | webapp, worker | How the bucket is addressed. Defaults to `true`, which Garage needs |
+| `EXTERNAL_S3_*`, `GARAGE_REPLICAS` | Compose | Use storage other than the bundled Garage. See [docs/storage.md](docs/storage.md) |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | webapp, worker, garage-init | The storage key pair. Chosen by you and imported into Garage |
 | `ADMIN_PASSWORD` | webapp | The single admin password |
 | `SESSION_SECRET` | webapp | Signs the admin session cookie; changing it signs everyone out |

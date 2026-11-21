@@ -11,6 +11,8 @@ export const config = {
 		region: required('S3_REGION'),
 		bucket: required('S3_BUCKET'),
 		accessKeyId: required('S3_ACCESS_KEY_ID'),
-		secretAccessKey: required('S3_SECRET_ACCESS_KEY')
+		secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+		// Optional: path-style addressing unless explicitly turned off.
+		forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false'
 	}
 };

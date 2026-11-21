@@ -13,6 +13,10 @@ export const variables = defineEnvVars({
 	S3_BUCKET: {
 		description: 'Bucket that holds uploads and transcoded video'
 	},
+	S3_FORCE_PATH_STYLE: {
+		description: 'Address the bucket as host/bucket (true, the default) or bucket.host (false)',
+		schema: (value) => value !== 'false'
+	},
 	S3_ACCESS_KEY_ID: {
 		description: 'Storage access key id'
 	},

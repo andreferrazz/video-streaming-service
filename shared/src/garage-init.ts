@@ -3,6 +3,13 @@
 // It runs on every deploy, before the web app and the worker start, and skips
 // each step that is already done, so only the first run changes anything.
 
+// When the stack is pointed at storage other than the bundled Garage, there is
+// nothing here to prepare: the bucket and its key are created at that provider.
+if (process.env.EXTERNAL_S3_ENDPOINT) {
+	console.log('external storage is configured; skipping Garage setup');
+	process.exit(0);
+}
+
 function required(name: string) {
 	const value = process.env[name];
 	if (!value) throw new Error(`Missing environment variable ${name}`);

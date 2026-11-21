@@ -18,6 +18,12 @@ export interface StorageConfig {
 	bucket: string;
 	accessKeyId: string;
 	secretAccessKey: string;
+	/**
+	 * How the bucket is addressed: true for http://host/bucket, false for
+	 * http://bucket.host. Garage and most self-hosted servers need true; some
+	 * hosted providers prefer false.
+	 */
+	forcePathStyle: boolean;
 }
 
 export function createStorage(config: StorageConfig) {
@@ -28,8 +34,7 @@ export function createStorage(config: StorageConfig) {
 			accessKeyId: config.accessKeyId,
 			secretAccessKey: config.secretAccessKey
 		},
-		// Garage serves buckets as http://host/bucket, not http://bucket.host.
-		forcePathStyle: true
+		forcePathStyle: config.forcePathStyle
 	});
 
 	return { client, bucket: config.bucket };
