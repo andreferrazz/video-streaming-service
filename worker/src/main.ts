@@ -9,12 +9,14 @@ import {
 	downloadToFile,
 	hlsKey,
 	isStorageFull,
+	legacyPosterKey,
+	objectExists,
 	posterKey,
 	sourceKey,
 	uploadFile
 } from 'shared/storage';
 import { config } from './config.ts';
-import { probe, transcode } from './transcode.ts';
+import { POSTER_LARGE, POSTER_SMALL, makePosters, probe, transcode } from './transcode.ts';
 
 const POLL_MS = 2000;
 const UPLOAD_CONCURRENCY = 8;
@@ -57,7 +59,7 @@ function contentType(file: string) {
 async function uploadHls(videoId: string, outDir: string) {
 	const entries = await readdir(outDir, { recursive: true, withFileTypes: true });
 	const files = entries
-		.filter((entry) => entry.isFile() && entry.name !== 'poster.jpg')
+		.filter((entry) => entry.isFile() && !entry.name.startsWith('poster'))
 		.map((entry) => join(entry.parentPath, entry.name));
 
 	// A few uploads at a time: faster than one by one, without flooding the storage.
@@ -71,7 +73,41 @@ async function uploadHls(videoId: string, outDir: string) {
 		})
 	);
 
-	await uploadFile(storage, posterKey(videoId), join(outDir, 'poster.jpg'), 'image/jpeg');
+	await uploadPosters(videoId, outDir);
+}
+
+async function uploadPosters(videoId: string, dir: string) {
+	await uploadFile(storage, posterKey(videoId, 'large'), join(dir, POSTER_LARGE), 'image/webp');
+	await uploadFile(storage, posterKey(videoId, 'small'), join(dir, POSTER_SMALL), 'image/webp');
+}
+
+/**
+ * Videos processed before the two WebP poster sizes existed only have a JPEG.
+ * Make the new sizes from it, so they do not need transcoding again. Each video
+ * is done once; after that this is a quick check per video at startup.
+ */
+async function backfillPosters() {
+	const ready = await db.select({ id: videos.id }).from(videos).where(eq(videos.status, 'ready'));
+
+	for (const { id } of ready) {
+		if (shutdown.signal.aborted) return;
+		if (await objectExists(storage, posterKey(id, 'small'))) continue;
+		if (!(await objectExists(storage, legacyPosterKey(id)))) continue;
+
+		const dir = await mkdtemp(join(tmpdir(), `posters-${id}-`));
+		try {
+			const original = join(dir, 'original.jpg');
+			await downloadToFile(storage, legacyPosterKey(id), original);
+			await makePosters(original, dir, 0, shutdown.signal);
+			await uploadPosters(id, dir);
+			console.log(`made smaller posters for ${id}`);
+		} catch (cause) {
+			// Not worth stopping the worker for: the site falls back to the JPEG.
+			console.error(`could not make posters for ${id}`, cause);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
 }
 
 async function processVideo(video: Video) {
@@ -144,6 +180,8 @@ const stale = await db
 if (stale.length > 0) console.log(`requeued ${stale.length} interrupted video(s)`);
 
 console.log('worker started');
+
+await backfillPosters();
 
 while (!shutdown.signal.aborted) {
 	const video = await claimNext();

@@ -11,7 +11,7 @@
 <a class="card-link" href="/watch/{video.slug}">
 	<!-- The poster shares a transition name with the player, so it grows into it on navigation. -->
 	<div class="poster" style:view-transition-name="video-{video.id}">
-		<img src="/media/{video.id}/poster.jpg" alt="" width="640" height="360" loading="lazy" />
+		<img src="/media/{video.id}/poster-small.webp" alt="" width="640" height="360" loading="lazy" />
 		<span class="play" aria-hidden="true">
 			<svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5.5v13l11-6.5z" fill="currentColor" /></svg>
 		</span>

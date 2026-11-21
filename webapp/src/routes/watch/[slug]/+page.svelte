@@ -27,8 +27,21 @@
 			if (cancelled) return;
 
 			if (Hls.isSupported()) {
-				const instance = new Hls();
+				const instance = new Hls({
+					// Fetch the playlists now, but no video until the visitor asks for it.
+					// Opening a page and leaving then costs a few kilobytes, not tens of megabytes.
+					autoStartLoad: false,
+					// Keep half a minute ready ahead of the playhead and no more. The default
+					// lets the buffer grow to ten minutes on a fast connection.
+					maxBufferLength: 30,
+					maxMaxBufferLength: 30
+				});
 				hls = instance;
+
+				// Pressing play or dragging the timeline is the visitor asking for video.
+				const start = () => instance.startLoad();
+				player.addEventListener('play', start, { once: true });
+				player.addEventListener('seeking', start, { once: true });
 
 				instance.on(Hls.Events.MANIFEST_PARSED, (_event, manifest) => {
 					levels = manifest.levels
@@ -73,7 +86,7 @@
 <article class="page">
 	<div class="player" style:view-transition-name="video-{data.video.id}">
 		<!-- svelte-ignore a11y_media_has_caption -->
-		<video bind:this={player} controls playsinline poster="{base}/poster.jpg"></video>
+		<video bind:this={player} controls playsinline preload="none" poster="{base}/poster.webp"></video>
 	</div>
 
 	<div class="details">

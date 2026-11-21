@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
+	HeadObjectCommand,
 	ListObjectsV2Command,
 	PutObjectCommand,
 	S3Client
@@ -71,8 +72,29 @@ export function hlsKey(videoId: string, file: string) {
 	return `hls/${videoId}/${file}`;
 }
 
-export function posterKey(videoId: string) {
+/**
+ * Posters come in two sizes: large for the player and the home page's featured
+ * video, small for cards and thumbnails.
+ */
+export function posterKey(videoId: string, size: 'large' | 'small') {
+	return size === 'large' ? `posters/${videoId}.webp` : `posters/${videoId}-small.webp`;
+}
+
+/** The single JPEG poster made for videos processed before the two WebP sizes existed. */
+export function legacyPosterKey(videoId: string) {
 	return `posters/${videoId}.jpg`;
+}
+
+export async function objectExists(storage: Storage, key: string) {
+	try {
+		await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: key }));
+		return true;
+	} catch (cause) {
+		if (cause instanceof Error && (cause.name === 'NotFound' || cause.name === 'NoSuchKey')) {
+			return false;
+		}
+		throw cause;
+	}
 }
 
 export async function downloadToFile(storage: Storage, key: string, path: string) {
@@ -113,9 +135,14 @@ export async function openObject(storage: Storage, key: string) {
 	}
 }
 
-/** Remove everything stored for a video: the original, the poster and all HLS files. */
+/** Remove everything stored for a video: the original, the posters and all HLS files. */
 export async function deleteVideoFiles(storage: Storage, videoId: string) {
-	const keys = [sourceKey(videoId), posterKey(videoId)];
+	const keys = [
+		sourceKey(videoId),
+		posterKey(videoId, 'large'),
+		posterKey(videoId, 'small'),
+		legacyPosterKey(videoId)
+	];
 
 	// Listing returns at most 1000 keys at a time, so keep asking until there are no more.
 	let token: string | undefined;
