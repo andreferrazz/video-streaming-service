@@ -5,8 +5,9 @@ deployed. The question was: what happens if the home page starts receiving very
 high traffic, up to 100,000 requests per second, and what would a CDN change?
 
 **Scope: the home page's HTML only.** A real visit also loads styles, scripts,
-fonts, posters and video. Those are left out on purpose. They matter, and the same
-reasoning applies to them, but they were not part of this experiment.
+fonts, posters and video. Those are left out here on purpose and covered in
+[full-visit-scaling.md](full-visit-scaling.md), which changes the picture: once
+video is counted, it is the first thing to run out.
 
 **Status in November 2026:** no CDN is in front of the site. The application has
 been prepared for one (see [What is already in the code](#what-is-already-in-the-code)).
