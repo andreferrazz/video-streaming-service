@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { and, desc, eq } from 'drizzle-orm';
 import { videos } from 'shared/db';
 import { db } from '#lib/server/db.ts';
-import { SESSION_COOKIE } from '#lib/server/session.ts';
+import { ADMIN_HINT_COOKIE, SESSION_COOKIE } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
@@ -55,6 +55,7 @@ export const actions: Actions = {
 
 	logout: async ({ cookies }) => {
 		cookies.delete(SESSION_COOKIE, { path: '/' });
+		cookies.delete(ADMIN_HINT_COOKIE, { path: '/' });
 		redirect(303, '/admin/login');
 	}
 };

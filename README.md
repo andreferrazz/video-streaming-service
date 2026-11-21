@@ -261,6 +261,11 @@ flowchart LR
 - **Uploads and playback go through the web app**, not straight to the bucket.
   That keeps Garage private and needs no cross-origin setup. The cost is that all
   video traffic passes through the web app container.
+- **The home page is the same for every visitor** and says so in its headers, so a
+  shared cache such as a CDN may reuse one copy for 30 seconds. The admin link in
+  the header is added in the browser from a hint cookie that grants nothing;
+  admin pages are marked as never cacheable. No CDN is in front yet, so today this
+  changes nothing visible; it makes the page ready for one.
 - **One worker.** At startup the worker requeues every video left in `processing`,
   which would steal jobs from a second worker. Running several needs a heartbeat
   first.
