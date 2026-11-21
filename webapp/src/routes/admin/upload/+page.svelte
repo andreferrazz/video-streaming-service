@@ -63,7 +63,14 @@
 			if (request.status === 201) {
 				goto('/admin');
 			} else {
-				message = `Upload failed (${request.status}).`;
+				// The server explains what went wrong, for example that storage is full.
+				let reason = '';
+				try {
+					reason = JSON.parse(request.responseText).message ?? '';
+				} catch {
+					// Not JSON; fall back to the status code below.
+				}
+				message = reason || `Upload failed (${request.status}).`;
 			}
 		};
 

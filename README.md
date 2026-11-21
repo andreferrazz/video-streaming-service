@@ -209,6 +209,7 @@ Compose service's environment on the server.
 | `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it |
 | `IMAGE_TAG` | Compose | Which image build to run. Defaults to `main`; set a commit SHA to roll back |
 | `GARAGE_CAPACITY_GB` | garage-init | Disk space Garage may use. Defaults to 100; read only on the first deploy |
+| `GARAGE_MAX_SIZE_GB` | garage-init | The most the bucket may hold. Defaults to 10; Garage refuses uploads past it. Applied on every deploy |
 
 ### Resource limits
 
@@ -227,6 +228,11 @@ The worker's CPU limit is the important one: ffmpeg uses every core it is given,
 and the cap keeps the site responsive during a transcode, at the price of slower
 transcodes. A container that exceeds its memory limit is killed and restarted; a
 video being processed at that moment goes back to the queue.
+
+Storage is capped too: the bucket may hold at most 10 GB (`GARAGE_MAX_SIZE_GB`),
+counting originals, renditions and posters. As a guide, ten minutes of 1080p video
+takes about 1 GB in total. When the cap is reached, an upload is refused, or a
+transcode fails, with "Storage is full"; deleting videos frees the space.
 
 ## Deployment
 
@@ -262,6 +268,7 @@ flowchart LR
 - **A single admin**, with one password and no rate limiting on the login.
 - **Published segments are cacheable for a day** and playlists for a minute, so a
   browser may keep segments it already fetched after a video is unpublished.
+- **Originals are kept** next to the renditions and count toward the storage cap.
 - **No backups are configured** for the database or the bucket.
 - **Every dependency is pinned to an exact version**, including Node, pnpm, the
   container images and the GitHub Actions. Nothing upgrades itself.

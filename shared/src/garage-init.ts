@@ -16,6 +16,9 @@ const accessKeyId = required('S3_ACCESS_KEY_ID');
 const secretAccessKey = required('S3_SECRET_ACCESS_KEY');
 // How much disk Garage may use on this node. It is only applied the first time.
 const capacityBytes = Number(process.env.GARAGE_CAPACITY_GB ?? 100) * 1_000_000_000;
+// The most the bucket may hold. Unlike the capacity above this is enforced:
+// Garage refuses uploads that would go past it. Applied on every deploy.
+const maxSizeBytes = Number(process.env.GARAGE_MAX_SIZE_GB ?? 10) * 1_000_000_000;
 
 /** Call the admin API. Returns null when the thing asked for does not exist. */
 async function admin<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T | null> {
@@ -40,6 +43,7 @@ interface Layout {
 }
 interface Bucket {
 	id: string;
+	quotas: { maxSize: number | null; maxObjects: number | null };
 	keys: { accessKeyId: string; permissions: { read: boolean; write: boolean; owner: boolean } }[];
 }
 
@@ -101,6 +105,15 @@ if (!granted?.read || !granted.write || !granted.owner) {
 	console.log('granted the key access to the bucket');
 } else {
 	console.log('key already has access to the bucket');
+}
+
+if (bucket.quotas.maxSize !== maxSizeBytes) {
+	await admin('POST', `UpdateBucket?id=${bucket.id}`, {
+		quotas: { maxSize: maxSizeBytes, maxObjects: bucket.quotas.maxObjects }
+	});
+	console.log(`set the bucket size limit to ${maxSizeBytes / 1_000_000_000} GB`);
+} else {
+	console.log('bucket size limit already set');
 }
 
 console.log('garage is ready');

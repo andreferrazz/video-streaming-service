@@ -68,6 +68,9 @@ services:
       GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?set GARAGE_ADMIN_TOKEN}
       # Disk space Garage may use, in gigabytes. Read only on the first deploy.
       GARAGE_CAPACITY_GB: ${GARAGE_CAPACITY_GB:-100}
+      # The most the bucket may hold, in gigabytes. Garage refuses uploads past
+      # it, so video can never fill the server's disk. Applied on every deploy.
+      GARAGE_MAX_SIZE_GB: ${GARAGE_MAX_SIZE_GB:-10}
     depends_on:
       garage:
         condition: service_started
