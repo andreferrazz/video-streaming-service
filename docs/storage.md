@@ -30,8 +30,8 @@ That is the whole contract. The apps do not use access control lists,
 versioning, lifecycle rules, bucket notifications or any provider's own
 extensions.
 
-The direct-upload functions in the lower half are in place and checked, but no
-page uses them yet.
+The direct-upload functions in the lower half are used by the upload endpoints
+under `/admin/uploads`. The upload page does not use those endpoints yet.
 
 One client setting matters for any provider: checksums are only added where S3
 requires them. By default the S3 library signs a checksum into every upload

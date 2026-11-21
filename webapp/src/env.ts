@@ -13,6 +13,11 @@ export const variables = defineEnvVars({
 	S3_BUCKET: {
 		description: 'Bucket that holds uploads and transcoded video'
 	},
+	S3_PUBLIC_ENDPOINT: {
+		description:
+			'The address browsers use to reach storage, if different from S3_ENDPOINT. Signed upload addresses are made for it',
+		schema: (value) => value || undefined
+	},
 	S3_FORCE_PATH_STYLE: {
 		description: 'Address the bucket as host/bucket (true, the default) or bucket.host (false)',
 		schema: (value) => value !== 'false'
@@ -32,6 +37,21 @@ export const variables = defineEnvVars({
 			}
 			return gigabytes;
 		}
+	},
+	UPLOAD_MAX_GB: {
+		description: 'The largest single file accepted, in gigabytes (default 20)',
+		schema: (value) => {
+			const gigabytes = value === undefined || value === '' ? 20 : Number(value);
+			if (!Number.isFinite(gigabytes) || gigabytes <= 0) {
+				throw new Error('UPLOAD_MAX_GB must be a positive number');
+			}
+			return gigabytes;
+		}
+	},
+	ORIGIN: {
+		description:
+			'Public address of the site. Pages from it are allowed to upload to storage; defaults to the local dev server',
+		schema: (value) => value || 'http://localhost:5173'
 	},
 	ADMIN_PASSWORD: {
 		description: 'Password for the admin area'
