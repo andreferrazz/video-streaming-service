@@ -210,6 +210,24 @@ Compose service's environment on the server.
 | `IMAGE_TAG` | Compose | Which image build to run. Defaults to `main`; set a commit SHA to roll back |
 | `GARAGE_CAPACITY_GB` | garage-init | Disk space Garage may use. Defaults to 100; read only on the first deploy |
 
+### Resource limits
+
+Every service has a CPU and memory limit in `compose.yaml`, sized for a 6-core,
+12 GB server that also runs other projects.
+
+| Service | CPU | Memory |
+|---|---|---|
+| worker | 2 cores | 2 GB |
+| webapp | 1.5 cores | 768 MB |
+| postgres | 1 core | 512 MB |
+| garage | 1 core | 512 MB |
+| migrate, garage-init | 0.5 core | 256 MB |
+
+The worker's CPU limit is the important one: ffmpeg uses every core it is given,
+and the cap keeps the site responsive during a transcode, at the price of slower
+transcodes. A container that exceeds its memory limit is killed and restarted; a
+video being processed at that moment goes back to the queue.
+
 ## Deployment
 
 ```mermaid
