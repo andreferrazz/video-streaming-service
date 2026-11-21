@@ -1,8 +1,9 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { and, desc, eq } from 'drizzle-orm';
-import { videos } from 'shared/db';
+import { storageUsed, videos } from 'shared/db';
 import { db } from '#lib/server/db.ts';
 import { ADMIN_HINT_COOKIE, SESSION_COOKIE } from '#lib/server/session.ts';
+import { storageLimitBytes } from '#lib/server/storage.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
@@ -20,7 +21,7 @@ export const load: PageServerLoad = async () => {
 		.from(videos)
 		.orderBy(desc(videos.createdAt));
 
-	return { videos: all };
+	return { videos: all, storage: { usedBytes: await storageUsed(db), limitBytes: storageLimitBytes } };
 };
 
 async function videoId(request: Request) {

@@ -23,6 +23,16 @@ export const variables = defineEnvVars({
 	S3_SECRET_ACCESS_KEY: {
 		description: 'Storage secret key'
 	},
+	STORAGE_LIMIT_GB: {
+		description: 'The most all videos together may hold in storage, in gigabytes (default 10)',
+		schema: (value) => {
+			const gigabytes = value === undefined || value === '' ? 10 : Number(value);
+			if (!Number.isFinite(gigabytes) || gigabytes <= 0) {
+				throw new Error('STORAGE_LIMIT_GB must be a positive number');
+			}
+			return gigabytes;
+		}
+	},
 	ADMIN_PASSWORD: {
 		description: 'Password for the admin area'
 	},

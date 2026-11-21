@@ -83,15 +83,44 @@ id and are not stored.
 
 ## What is specific to Garage
 
-Three things, none of them in the apps:
+Two things, neither of them in the apps:
 
 - **The `garage` service and `garage/garage.toml`**: the server itself.
 - **The `garage-init` job**: it gives the node its storage role, creates the
   bucket and registers the access key through Garage's admin API. Other providers
   have their own ways of creating a bucket and a key.
-- **The size cap.** `garage-init` sets a quota on the bucket, and the apps
-  recognise Garage's error when it is reached. Most other providers have no such
-  quota, so the cap would not apply there.
+
+`garage-init` also sets a quota on the bucket, slightly above the storage limit
+described next. That is only a backstop for this one server's shared disk; the
+limit itself does not depend on it.
+
+## The storage limit
+
+The apps keep their own count of what is stored and enforce the limit
+themselves, so it works the same with any provider.
+
+- **The count** is `videos.stored_bytes`: what each video holds in the bucket,
+  original, renditions and posters together. The total in use is the sum over
+  all videos, so deleting a video frees its space with no extra bookkeeping.
+- **The limit** is `STORAGE_LIMIT_GB`, 10 by default.
+- **Room is reserved before anything is written.** An upload must declare its
+  size; the web app sets that much aside and refuses the upload, storing nothing,
+  if it would not fit. The worker does the same for the renditions once it knows
+  how large they are. The check and the reservation happen under one database
+  lock, so two uploads arriving together cannot both take the last free space.
+- **A failed or interrupted write gives its room back**, and the worker removes
+  any renditions it had already stored, so the count stays equal to what is
+  really in the bucket.
+- **Videos stored before the count existed** are measured once by the worker at
+  startup.
+- **After a crash**, the worker removes what an interrupted video had half
+  stored and counts it again from what is really there, before retrying it.
+
+When the limit is reached, an upload is refused, or a transcode fails, with
+"Storage is full". The admin page shows how much is in use.
+
+The count is only as good as the code that maintains it. Files written to the
+bucket by anything other than the apps are not counted.
 
 ## Settings
 
@@ -102,3 +131,4 @@ Three things, none of them in the apps:
 | `S3_BUCKET` | bucket name |
 | `S3_FORCE_PATH_STYLE` | `true` (default) for `host/bucket` addressing, `false` for `bucket.host` |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the key pair |
+| `STORAGE_LIMIT_GB` | the most all videos together may hold; default 10 |

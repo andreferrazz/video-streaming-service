@@ -4,7 +4,8 @@ import {
 	S3_ENDPOINT,
 	S3_FORCE_PATH_STYLE,
 	S3_REGION,
-	S3_SECRET_ACCESS_KEY
+	S3_SECRET_ACCESS_KEY,
+	STORAGE_LIMIT_GB
 } from '$app/env/private';
 import { createStorage } from 'shared/storage';
 
@@ -16,3 +17,6 @@ export const storage = createStorage({
 	secretAccessKey: S3_SECRET_ACCESS_KEY,
 	forcePathStyle: S3_FORCE_PATH_STYLE
 });
+
+/** The most all videos together may hold, in bytes. */
+export const storageLimitBytes = STORAGE_LIMIT_GB * 1_000_000_000;

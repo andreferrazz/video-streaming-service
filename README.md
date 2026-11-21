@@ -213,7 +213,7 @@ Compose service's environment on the server.
 | `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it |
 | `IMAGE_TAG` | Compose | Which image build to run. Defaults to `main`; set a commit SHA to roll back |
 | `GARAGE_CAPACITY_GB` | garage-init | Disk space Garage may use. Defaults to 100; read only on the first deploy |
-| `GARAGE_MAX_SIZE_GB` | garage-init | The most the bucket may hold. Defaults to 10; Garage refuses uploads past it. Applied on every deploy |
+| `STORAGE_LIMIT_GB` | webapp, worker, garage-init | The most all videos together may hold. Defaults to 10. The apps keep count and refuse uploads past it |
 
 ### Resource limits
 
@@ -233,10 +233,13 @@ and the cap keeps the site responsive during a transcode, at the price of slower
 transcodes. A container that exceeds its memory limit is killed and restarted; a
 video being processed at that moment goes back to the queue.
 
-Storage is capped too: the bucket may hold at most 10 GB (`GARAGE_MAX_SIZE_GB`),
-counting originals, renditions and posters. As a guide, ten minutes of 1080p video
-takes about 1 GB in total. When the cap is reached, an upload is refused, or a
-transcode fails, with "Storage is full"; deleting videos frees the space.
+Storage is capped too: all videos together may hold at most 10 GB
+(`STORAGE_LIMIT_GB`), counting originals, renditions and posters. The apps keep
+the count themselves, so the cap does not depend on the storage provider; see
+[docs/storage.md](docs/storage.md#the-storage-limit). As a guide, ten minutes of
+1080p video takes about 1 GB in total. When the cap is reached, an upload is
+refused, or a transcode fails, with "Storage is full"; deleting videos frees the
+space. The admin page shows how much is in use.
 
 ## Deployment
 

@@ -1,0 +1,1 @@
+ALTER TABLE "videos" ADD COLUMN "stored_bytes" bigint DEFAULT 0 NOT NULL;

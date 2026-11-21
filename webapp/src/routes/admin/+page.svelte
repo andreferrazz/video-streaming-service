@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
-	import { formatDuration } from '#lib/format.ts';
+	import { formatBytes, formatDuration } from '#lib/format.ts';
 	import { SITE_NAME } from '#lib/site.ts';
 	import type { PageProps } from './$types';
 
@@ -19,6 +19,10 @@
 	});
 
 	const published = $derived(data.videos.filter((video) => video.publishedAt).length);
+	const usedPercent = $derived(
+		Math.min(100, (data.storage.usedBytes / data.storage.limitBytes) * 100)
+	);
+
 	const inProgress = $derived(
 		data.videos.filter((video) => ['uploading', 'queued', 'processing'].includes(video.status))
 			.length
@@ -50,6 +54,14 @@
 		<div><dt>Videos</dt><dd>{data.videos.length}</dd></div>
 		<div><dt>Published</dt><dd>{published}</dd></div>
 		<div><dt>In progress</dt><dd>{inProgress}</dd></div>
+		<div class="usage">
+			<dt>Storage</dt>
+			<dd>
+				{formatBytes(data.storage.usedBytes)}
+				<small>of {formatBytes(data.storage.limitBytes)}</small>
+			</dd>
+			<div class="meter" aria-hidden="true"><span style:width="{usedPercent}%"></span></div>
+		</div>
 	</dl>
 
 	{#if form?.error}
@@ -146,12 +158,12 @@
 
 	.stats {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 1rem;
 		margin: 0;
 	}
 
-	.stats div {
+	.stats > div {
 		padding: 1.1rem 1.25rem;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-m);
@@ -169,6 +181,17 @@
 		font-size: 2.4rem;
 		line-height: 1;
 		font-variant-numeric: tabular-nums;
+	}
+
+	dd small {
+		font-family: var(--font-sans);
+		font-size: 0.85rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	.usage .meter {
+		margin-top: 0.7rem;
 	}
 
 	.list {
@@ -289,7 +312,11 @@
 			flex-wrap: wrap;
 		}
 
-		.stats div {
+		.stats {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.stats > div {
 			padding: 0.85rem 1rem;
 		}
 
