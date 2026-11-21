@@ -4,7 +4,10 @@ import { videos } from 'shared/db';
 import { db } from '#lib/server/db.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+// How long a shared cache (a CDN) may reuse a published video's page.
+const SHARED_CACHE_SECONDS = 30;
+
+export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 	const [video] = await db
 		.select({
 			id: videos.id,
@@ -21,6 +24,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// The admin may watch a video that is ready but not published yet.
 	const canWatch = isPublic || (locals.admin && video?.status === 'ready');
 	if (!video || !canWatch) error(404, 'Video not found');
+
+	// A published video's page is the same for every visitor, so shared caches may
+	// reuse it briefly, as with the home page. An admin's preview of an unpublished
+	// video must never be kept by any cache.
+	setHeaders({
+		'cache-control': isPublic
+			? `public, max-age=0, s-maxage=${SHARED_CACHE_SECONDS}, stale-while-revalidate=${SHARED_CACHE_SECONDS * 2}`
+			: 'private, no-store'
+	});
 
 	// A few other published videos to keep watching.
 	const more = await db

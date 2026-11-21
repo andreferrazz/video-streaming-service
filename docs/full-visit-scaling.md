@@ -4,8 +4,12 @@ This continues [home-page-scaling.md](home-page-scaling.md), which looked only a
 the home page's HTML. Here the whole visit is counted: styles, scripts, fonts,
 posters and the video itself.
 
-Like that document, this is a record of an experiment. **No CDN is configured**,
-and the improvements listed at the end are proposals, not things that exist.
+Like that document, this is a record of an experiment. **No CDN is configured.**
+
+**Update:** the first four improvements listed at the end have since been made.
+The measurements in the body were taken before them and are kept as the baseline;
+[After the improvements](#after-the-improvements) gives the new figures and says
+which statements below no longer hold.
 
 The short version: once video is counted, the HTML barely matters. One viewer
 watching in 1080p uses as much of the server's network link as about 70 home
@@ -203,22 +207,56 @@ With that in place:
 | Removing a video takes effect | within a minute | within a minute for new viewers; cached segments linger up to a day |
 | Running cost | none | grows with hours watched |
 
+## After the improvements
+
+Improvements 1 to 4 from the list below are now in the code. The same visit,
+measured the same way:
+
+| | Before | After |
+|---|---|---|
+| Home page, first visit | 348 KB | 152 KB |
+| of which posters | 243 KB | 51 KB |
+| of which page HTML | 6.1 KB | 2.0 KB |
+| Opening a video, before play is pressed | 40.3 MB | 0.15 MB, none of it video |
+| Video kept ready ahead of the playhead | about 96 s | about 30 s |
+| Downloaded in the first minute of watching | 61.5 MB | 39.0 MB |
+| Watch page for a published video | not cacheable | cacheable for 30 s, like the home page |
+
+Pressing play started the picture moving in 0.6 seconds in the local test, and
+dragging the timeline before pressing play works.
+
+What this changes in the analysis above:
+
+- **New visitors without a CDN:** a first visit is 152 KB, so a 1 Gbit/s link is
+  full at about 820 new visitors per second, up from about 360.
+- **Opening a video is no longer expensive.** A visitor who opens a video and
+  leaves costs 150 KB, almost all of it the player script, which the browser then
+  keeps.
+- **Simultaneous viewers are unchanged.** Someone who keeps watching still needs
+  the full bitrate, so the table of viewers per quality stands: about 290 in 1080p.
+  Video is still what runs out first.
+- **With a CDN, the watch page is no longer the remaining ceiling.** It is now
+  cached like the home page, so the rows for "Watch page HTML" and "Watch page
+  data" in the header table, the note on the diagram and the "what limits the
+  site" row in the comparison describe the earlier state. An admin's preview of
+  an unpublished video is still never cached.
+
 ## Improvements this points to
 
-Not implemented. Ordered by how much they would save for the effort.
+The first four are done; the fifth is not. They are listed in the order they were
+ranked, by how much they save for the effort.
 
-1. **Do not download video before play is pressed.** The player can be told to
-   wait, and to keep a smaller buffer. Today opening a video costs up to 40 MB
-   even if nobody watches it. This helps with or without a CDN, and saves
-   visitors' data too.
-2. **Make posters smaller.** They are 70% of the home page. Cards are shown 300
-   to 400 pixels wide but receive a JPEG of up to 1280 by 720. Generating a second, smaller
-   poster in a modern format would cut the home page to roughly a third.
-3. **Make the watch page cacheable**, as was done for the home page. For a
-   published video it is already the same for every visitor.
-4. **Compress the HTML.** Scripts and styles are already compressed; pages are
-   not. A small gain.
-5. **Serve media from storage through a CDN directly**, without passing through
+1. **Do not download video before play is pressed.** *Done.* The player now waits
+   for play or a drag of the timeline, and keeps 30 seconds ready. Before, opening
+   a video cost up to 40 MB even if nobody watched it.
+2. **Make posters smaller.** *Done.* Each video now has two WebP posters: up to
+   1280 by 720 for the player and the featured video, and up to 640 by 360 for
+   cards and thumbnails. Existing videos are converted once by the worker.
+3. **Make the watch page cacheable**, as was done for the home page. *Done* for
+   published videos.
+4. **Compress the HTML.** *Done.* Pages and page data are compressed on the way
+   out: the home page goes from 5.9 KB to 1.6 KB.
+5. **Serve media from storage through a CDN directly** (not done), without passing through
    the web app. This removes the database check and the extra hop for every
    segment, but it means deciding how unpublished videos stay private, which the
    web app handles today.

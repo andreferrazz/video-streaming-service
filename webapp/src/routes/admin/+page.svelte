@@ -68,7 +68,7 @@
 				<li>
 					<a class="thumb" href="/admin/videos/{video.id}" tabindex="-1" aria-hidden="true">
 						{#if video.status === 'ready'}
-							<img src="/media/{video.id}/poster.jpg" alt="" width="160" height="90" loading="lazy" />
+							<img src="/media/{video.id}/poster-small.webp" alt="" width="160" height="90" loading="lazy" />
 						{/if}
 					</a>
 

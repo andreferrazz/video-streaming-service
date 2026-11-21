@@ -81,7 +81,7 @@
 		<aside>
 			<div class="preview">
 				{#if data.video.status === 'ready'}
-					<img src="/media/{data.video.id}/poster.jpg" alt="" width="640" height="360" />
+					<img src="/media/{data.video.id}/poster-small.webp" alt="" width="640" height="360" />
 				{:else}
 					<span class="muted">No preview yet</span>
 				{/if}

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { videos } from 'shared/db';
-import { hlsKey, openObject, posterKey } from 'shared/storage';
+import { hlsKey, legacyPosterKey, openObject, posterKey } from 'shared/storage';
 import { db } from '#lib/server/db.ts';
 import { storage } from '#lib/server/storage.ts';
 import type { RequestHandler } from './$types';
@@ -18,8 +18,15 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
 	let key: string;
 	let maxAge: number;
-	if (path === 'poster.jpg') {
-		key = posterKey(id);
+	// What to serve if `key` is missing. Videos processed before the WebP posters
+	// existed only have the JPEG, until the worker has made the new sizes.
+	let fallbackKey: string | undefined;
+	if (path === 'poster.webp' || path === 'poster-small.webp') {
+		key = posterKey(id, path === 'poster.webp' ? 'large' : 'small');
+		fallbackKey = legacyPosterKey(id);
+		maxAge = 3600;
+	} else if (path === 'poster.jpg') {
+		key = legacyPosterKey(id);
 		maxAge = 3600;
 	} else if (PLAYLIST.test(path)) {
 		key = hlsKey(id, path);
@@ -39,7 +46,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const isPublic = video?.status === 'ready' && video.publishedAt !== null;
 	if (!video || (!isPublic && !locals.admin)) error(404, 'Not found');
 
-	const object = await openObject(storage, key);
+	const object =
+		(await openObject(storage, key)) ??
+		(fallbackKey ? await openObject(storage, fallbackKey) : null);
 	if (!object) error(404, 'Not found');
 
 	const headers = new Headers({

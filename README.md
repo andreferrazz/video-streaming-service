@@ -100,7 +100,8 @@ sources/<video id>               the original upload
 hls/<video id>/master.m3u8       the playlist that lists the renditions
 hls/<video id>/720p/index.m3u8   one playlist per rendition
 hls/<video id>/720p/seg_00000.ts its segments
-posters/<video id>.jpg           the poster image
+posters/<video id>.webp          the poster, up to 1280 by 720
+posters/<video id>-small.webp    the same, up to 640 by 360, for cards
 ```
 
 ## Repository layout
@@ -265,11 +266,14 @@ up separately: [the home page alone](docs/home-page-scaling.md), and
 - **Uploads and playback go through the web app**, not straight to the bucket.
   That keeps Garage private and needs no cross-origin setup. The cost is that all
   video traffic passes through the web app container.
-- **The home page is the same for every visitor** and says so in its headers, so a
-  shared cache such as a CDN may reuse one copy for 30 seconds. The admin link in
+- **The home page and published watch pages are the same for every visitor** and
+  say so in their headers, so a shared cache such as a CDN may reuse one copy for
+  30 seconds. The admin link in
   the header is added in the browser from a hint cookie that grants nothing;
   admin pages are marked as never cacheable. No CDN is in front yet, so today this
   changes nothing visible; it makes the page ready for one.
+- **The player fetches no video until play is pressed**, and then keeps about 30
+  seconds ready. Opening a video and leaving costs almost nothing.
 - **One worker.** At startup the worker requeues every video left in `processing`,
   which would steal jobs from a second worker. Running several needs a heartbeat
   first.

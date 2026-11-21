@@ -18,7 +18,7 @@
 
 {#if featured}
 	<section class="hero">
-		<img class="backdrop" src="/media/{featured.id}/poster.jpg" alt="" aria-hidden="true" />
+		<img class="backdrop" src="/media/{featured.id}/poster.webp" alt="" aria-hidden="true" />
 
 		<div class="page hero-inner">
 			<div class="copy">
@@ -40,7 +40,7 @@
 
 			<a class="stage" href="/watch/{featured.slug}" tabindex="-1" aria-hidden="true">
 				<img
-					src="/media/{featured.id}/poster.jpg"
+					src="/media/{featured.id}/poster.webp"
 					alt=""
 					width="1280"
 					height="720"

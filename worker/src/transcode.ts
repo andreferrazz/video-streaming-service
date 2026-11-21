@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -81,7 +81,7 @@ function renditionsFor(source: SourceInfo) {
 
 /**
  * Transcode `input` into HLS under `outDir`: one folder per rendition plus a
- * master playlist that lists them, and a poster image. `onProgress` receives
+ * master playlist that lists them, and the poster images. `onProgress` receives
  * a value from 0 to 100.
  */
 export async function transcode(
@@ -141,16 +141,41 @@ export async function transcode(
 
 	await writeFile(join(outDir, 'master.m3u8'), master.join('\n') + '\n');
 
-	// Poster: one frame from a second in, or the middle of very short videos.
-	const posterAt = Math.min(1, source.durationSeconds / 2);
+	// Posters: one frame from a second in, or the middle of very short videos.
+	await makePosters(input, outDir, Math.min(1, source.durationSeconds / 2), signal);
+}
+
+export const POSTER_LARGE = 'poster.webp';
+export const POSTER_SMALL = 'poster-small.webp';
+
+/**
+ * Write the two poster sizes into `outDir` from one frame of `input`, which may
+ * be a video or a still image. `at` is how many seconds in to take the frame.
+ */
+export async function makePosters(input: string, outDir: string, at: number, signal: AbortSignal) {
+	await mkdir(outDir, { recursive: true });
 	await run(
 		'ffmpeg',
 		[
 			'-y', '-v', 'error', '-nostdin',
-			'-ss', String(posterAt), '-i', input,
-			'-frames:v', '1', '-vf', 'scale=-2:min(720\\,ih)', '-q:v', '3',
-			join(outDir, 'poster.jpg')
+			// Seeking a still image, even to zero, makes ffmpeg produce nothing at all.
+			...(at > 0 ? ['-ss', String(at)] : []),
+			'-i', input,
+			// One decoded frame, scaled twice. Neither size is ever larger than the source.
+			'-filter_complex',
+			'[0:v]split=2[a][b];[a]scale=-2:min(720\\,ih)[large];[b]scale=-2:min(360\\,ih)[small]',
+			'-map', '[large]', '-frames:v', '1', '-c:v', 'libwebp', '-quality', '75',
+			join(outDir, POSTER_LARGE),
+			'-map', '[small]', '-frames:v', '1', '-c:v', 'libwebp', '-quality', '75',
+			join(outDir, POSTER_SMALL)
 		],
 		signal
 	);
+
+	// ffmpeg can exit successfully having written an empty file. Never store one.
+	for (const name of [POSTER_LARGE, POSTER_SMALL]) {
+		if ((await stat(join(outDir, name))).size === 0) {
+			throw new Error(`ffmpeg produced an empty ${name}`);
+		}
+	}
 }
