@@ -27,3 +27,17 @@ const dateFormat = new Intl.DateTimeFormat('en', {
 export function formatDate(date: Date) {
 	return dateFormat.format(date);
 }
+
+/** 8_300_000 -> "8.3 MB", 1_250_000_000 -> "1.3 GB". Decimal units, as storage is sold. */
+export function formatBytes(bytes: number) {
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1000 && unit < units.length - 1) {
+		value /= 1000;
+		unit++;
+	}
+	// One decimal for small numbers, none once there are three digits or for bytes.
+	const digits = unit === 0 || value >= 100 || Number.isInteger(value) ? 0 : 1;
+	return `${value.toFixed(digits)} ${units[unit]}`;
+}

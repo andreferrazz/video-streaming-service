@@ -1,15 +1,25 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { eq } from 'drizzle-orm';
-import { createDb, videos, type Video } from 'shared/db';
 import {
+	adjustStorage,
+	createDb,
+	reserveStorage,
+	setStorage,
+	videos,
+	type Video
+} from 'shared/db';
+import {
+	StorageFullError,
 	createStorage,
+	deleteVideoFiles,
 	downloadToFile,
 	hlsKey,
 	isStorageFull,
 	legacyPosterKey,
+	measureVideoBytes,
 	objectExists,
 	posterKey,
 	sourceKey,
@@ -110,6 +120,39 @@ async function backfillPosters() {
 	}
 }
 
+/** Total size of every file under a folder, in bytes. */
+async function folderBytes(dir: string) {
+	const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+	const sizes = await Promise.all(
+		entries
+			.filter((entry) => entry.isFile())
+			.map(async (entry) => (await stat(join(entry.parentPath, entry.name))).size)
+	);
+	return sizes.reduce((sum, size) => sum + size, 0);
+}
+
+/**
+ * Store the renditions and posters, counting them against the storage limit.
+ * Room is set aside first; if storing then fails or is interrupted, whatever
+ * was written is removed and the room given back, so the count stays true.
+ */
+async function storeOutput(videoId: string, outDir: string) {
+	const bytes = await folderBytes(outDir);
+	if (!(await reserveStorage(db, videoId, bytes, config.storageLimitBytes))) {
+		throw new StorageFullError();
+	}
+
+	try {
+		await uploadHls(videoId, outDir);
+	} catch (cause) {
+		await deleteVideoFiles(storage, videoId, { keepOriginal: true }).catch((cleanup) =>
+			console.error(`could not remove partial output of ${videoId}`, cleanup)
+		);
+		await adjustStorage(db, videoId, -bytes);
+		throw cause;
+	}
+}
+
 async function processVideo(video: Video) {
 	const workDir = await mkdtemp(join(tmpdir(), `video-${video.id}-`));
 	const input = join(workDir, 'source');
@@ -130,7 +173,7 @@ async function processVideo(video: Video) {
 				.catch((cause) => console.error('could not save progress', cause));
 		});
 
-		await uploadHls(video.id, outDir);
+		await storeOutput(video.id, outDir);
 
 		await db
 			.update(videos)
@@ -170,6 +213,34 @@ async function processVideo(video: Video) {
 	}
 }
 
+/**
+ * Videos stored before the app kept count have nothing recorded. Measure what
+ * each really holds, once. A video that holds nothing is simply checked again
+ * next time, which costs a few quick requests.
+ */
+async function backfillStoredBytes() {
+	const uncounted = await db
+		.select({ id: videos.id, status: videos.status })
+		.from(videos)
+		.where(eq(videos.storedBytes, 0));
+
+	for (const { id, status } of uncounted) {
+		if (shutdown.signal.aborted) return;
+		// These are being written right now and are counted as they go.
+		if (status === 'uploading' || status === 'processing') continue;
+
+		try {
+			const bytes = await measureVideoBytes(storage, id);
+			if (bytes > 0) {
+				await adjustStorage(db, id, bytes);
+				console.log(`counted ${bytes} stored bytes for ${id}`);
+			}
+		} catch (cause) {
+			console.error(`could not measure ${id}`, cause);
+		}
+	}
+}
+
 // A video still marked as processing at startup belongs to a worker that died. Run it again.
 // This assumes a single worker; with several, each would steal the others' jobs here.
 const stale = await db
@@ -177,11 +248,20 @@ const stale = await db
 	.set({ status: 'queued', progress: 0, updatedAt: new Date() })
 	.where(eq(videos.status, 'processing'))
 	.returning({ id: videos.id });
+
+// That worker may have died after reserving room, or after storing some of the
+// renditions. Remove what it left and count again from what is really there,
+// so the next attempt starts from a true figure.
+for (const { id } of stale) {
+	await deleteVideoFiles(storage, id, { keepOriginal: true });
+	await setStorage(db, id, await measureVideoBytes(storage, id));
+}
 if (stale.length > 0) console.log(`requeued ${stale.length} interrupted video(s)`);
 
 console.log('worker started');
 
 await backfillPosters();
+await backfillStoredBytes();
 
 while (!shutdown.signal.aborted) {
 	const video = await claimNext();

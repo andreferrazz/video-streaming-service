@@ -44,7 +44,19 @@ export type Storage = ReturnType<typeof createStorage>;
 
 /** True when storage refused a write because the bucket has reached its size limit. */
 export function isStorageFull(cause: unknown) {
-	return cause instanceof Error && /quota is reached/i.test(cause.message);
+	// Our own limit, or as a backstop the wording Garage uses for its bucket quota.
+	return (
+		cause instanceof StorageFullError ||
+		(cause instanceof Error && /quota is reached/i.test(cause.message))
+	);
+}
+
+/** Thrown when storing something would take the total past the configured limit. */
+export class StorageFullError extends Error {
+	constructor() {
+		super('Storage is full.');
+		this.name = 'StorageFullError';
+	}
 }
 
 /** Where the original upload of a video is kept. */
@@ -140,14 +152,9 @@ export async function openObject(storage: Storage, key: string) {
 	}
 }
 
-/** Remove everything stored for a video: the original, the posters and all HLS files. */
-export async function deleteVideoFiles(storage: Storage, videoId: string) {
-	const keys = [
-		sourceKey(videoId),
-		posterKey(videoId, 'large'),
-		posterKey(videoId, 'small'),
-		legacyPosterKey(videoId)
-	];
+/** Every HLS file of a video, with its size. */
+async function listHls(storage: Storage, videoId: string) {
+	const objects: { key: string; size: number }[] = [];
 
 	// Listing returns at most 1000 keys at a time, so keep asking until there are no more.
 	let token: string | undefined;
@@ -160,10 +167,61 @@ export async function deleteVideoFiles(storage: Storage, videoId: string) {
 			})
 		);
 		for (const object of page.Contents ?? []) {
-			if (object.Key) keys.push(object.Key);
+			if (object.Key) objects.push({ key: object.Key, size: object.Size ?? 0 });
 		}
 		token = page.NextContinuationToken;
 	} while (token);
+
+	return objects;
+}
+
+/** Size of one object in bytes, or 0 if it does not exist. */
+async function objectSize(storage: Storage, key: string) {
+	try {
+		const head = await storage.client.send(
+			new HeadObjectCommand({ Bucket: storage.bucket, Key: key })
+		);
+		return head.ContentLength ?? 0;
+	} catch (cause) {
+		if (cause instanceof Error && (cause.name === 'NotFound' || cause.name === 'NoSuchKey')) {
+			return 0;
+		}
+		throw cause;
+	}
+}
+
+/**
+ * How many bytes a video really holds in the bucket. The app normally keeps
+ * count as it goes; this measures, for videos stored before it did.
+ */
+export async function measureVideoBytes(storage: Storage, videoId: string) {
+	const singles = await Promise.all(
+		[
+			sourceKey(videoId),
+			posterKey(videoId, 'large'),
+			posterKey(videoId, 'small'),
+			legacyPosterKey(videoId)
+		].map((key) => objectSize(storage, key))
+	);
+	const hls = await listHls(storage, videoId);
+
+	return [...singles, ...hls.map((object) => object.size)].reduce((sum, size) => sum + size, 0);
+}
+
+/** Remove everything stored for a video: the original, the posters and all HLS files. */
+export async function deleteVideoFiles(
+	storage: Storage,
+	videoId: string,
+	// Pass { keepOriginal: true } to remove only what the worker produced.
+	options: { keepOriginal?: boolean } = {}
+) {
+	const keys = [
+		posterKey(videoId, 'large'),
+		posterKey(videoId, 'small'),
+		legacyPosterKey(videoId),
+		...(await listHls(storage, videoId)).map((object) => object.key)
+	];
+	if (!options.keepOriginal) keys.push(sourceKey(videoId));
 
 	// Deleting a key that does not exist is not an error, so missing files are fine.
 	const queue = [...keys];

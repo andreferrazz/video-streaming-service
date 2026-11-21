@@ -9,3 +9,4 @@ export function createDb(url: string) {
 
 export type Db = ReturnType<typeof createDb>;
 export * from './schema.ts';
+export * from './usage.ts';

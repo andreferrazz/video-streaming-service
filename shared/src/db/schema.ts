@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const videoStatus = pgEnum('video_status', [
 	'uploading',
@@ -19,6 +19,9 @@ export const videos = pgTable('videos', {
 	durationSeconds: integer('duration_seconds'),
 	width: integer('width'),
 	height: integer('height'),
+	// Bytes this video holds in the bucket: the original, the renditions and the
+	// posters. The sum over all videos is what the storage limit is checked against.
+	storedBytes: bigint('stored_bytes', { mode: 'number' }).notNull().default(0),
 	publishedAt: timestamp('published_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
