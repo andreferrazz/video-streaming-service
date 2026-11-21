@@ -18,10 +18,25 @@ and the worker call its functions and never touch the S3 library themselves.
 | `openObject` | streaming a file to a player | `GetObject` |
 | `objectExists` | checking whether a poster has been made | `HeadObject` |
 | `deleteVideoFiles` | removing everything a video owns | `ListObjectsV2`, `DeleteObject` |
+| `measureVideoBytes` | counting what a video holds | `HeadObject`, `ListObjectsV2` |
+| `startMultipartUpload` | opening a direct upload | `CreateMultipartUpload` |
+| `signPartUpload` | giving a browser an address for one part | a presigned `UploadPart` |
+| `listUploadedParts` | resuming, and finishing without trusting the browser | `ListParts` |
+| `completeMultipartUpload` | assembling the parts | `CompleteMultipartUpload` |
+| `abortMultipartUpload` | giving up on an upload | `AbortMultipartUpload` |
+| `allowBrowserUploads`, `getBrowserUploadOrigins`, `forbidBrowserUploads` | letting the site's pages upload | `PutBucketCors`, `GetBucketCors`, `DeleteBucketCors` |
 
-That is the whole contract. The apps do not use presigned URLs, access control
-lists, versioning, lifecycle rules, bucket notifications or any provider's own
+That is the whole contract. The apps do not use access control lists,
+versioning, lifecycle rules, bucket notifications or any provider's own
 extensions.
+
+The direct-upload functions in the lower half are in place and checked, but no
+page uses them yet.
+
+One client setting matters for any provider: checksums are only added where S3
+requires them. By default the S3 library signs a checksum into every upload
+address, which a browser sending a part cannot supply, and the upload is refused
+with "Invalid digest".
 
 The file layout is in the [README](../README.md#files-in-the-bucket).
 
@@ -35,8 +50,10 @@ pnpm --filter shared storage:check
 
 It reads the same `S3_*` settings the apps use. It works on a made-up video id,
 so it is safe against a bucket that is in use, and it removes what it wrote. It
-uploads 40 MB in parts, compares downloads byte for byte, and stores 1,100 files
-under one video so that listing has to span more than one page.
+uploads 40 MB in parts, compares downloads byte for byte, sends parts to signed
+addresses the way a browser would, sets and restores the cross-origin rules, and
+stores 1,100 files under one video so that listing has to span more than one
+page.
 
 CI runs this check on every pull request against two unrelated servers: Garage,
 and [Versity Gateway](https://github.com/versity/versitygw). Passing on both is

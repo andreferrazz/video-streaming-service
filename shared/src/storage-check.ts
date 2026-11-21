@@ -13,14 +13,22 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	abortMultipartUpload,
+	allowBrowserUploads,
+	completeMultipartUpload,
 	createStorage,
 	deleteVideoFiles,
 	downloadToFile,
+	forbidBrowserUploads,
+	getBrowserUploadOrigins,
 	hlsKey,
+	listUploadedParts,
 	objectExists,
 	openObject,
 	posterKey,
+	signPartUpload,
 	sourceKey,
+	startMultipartUpload,
 	uploadFile,
 	uploadStream
 } from './storage.ts';
@@ -127,6 +135,100 @@ try {
 	await check('get nothing, not an error, for a missing object', async () => {
 		expect((await openObject(storage, hlsKey(videoId, 'missing.m3u8'))) === null, 'expected null');
 	});
+
+	// ---- Direct uploads: what a browser does, done here with plain fetch and no credentials ----
+
+	const directId = randomUUID();
+	const partBytes = [pattern(5 * 1024 * 1024), pattern(5 * 1024 * 1024 + 123), pattern(999)];
+	let uploadId = '';
+
+	await check('open a multipart upload', async () => {
+		uploadId = await startMultipartUpload(storage, sourceKey(directId), 'video/mp4');
+		expect(uploadId, 'no upload id came back');
+	});
+
+	await check('send parts to signed addresses, without credentials', async () => {
+		// Out of order on purpose: a browser sends several at once.
+		for (const number of [2, 1, 3]) {
+			const url = await signPartUpload(storage, sourceKey(directId), uploadId, number, 300);
+			const response = await fetch(url, { method: 'PUT', body: partBytes[number - 1] });
+			expect(response.ok, `part ${number} was refused with ${response.status}: ${await response.text()}`);
+		}
+	});
+
+	await check('refuse a signed address that was altered', async () => {
+		const url = await signPartUpload(storage, sourceKey(directId), uploadId, 4, 300);
+		const response = await fetch(url.replace('partNumber=4', 'partNumber=5'), {
+			method: 'PUT',
+			body: 'x'
+		});
+		expect(!response.ok, 'an altered address was accepted');
+	});
+
+	await check('list the parts that arrived, in order, with sizes', async () => {
+		const parts = await listUploadedParts(storage, sourceKey(directId), uploadId);
+		expect(parts.length === 3, `expected 3 parts, storage reports ${parts.length}`);
+		expect(parts.map((part) => part.partNumber).join() === '1,2,3', 'the parts are out of order');
+		expect(
+			parts.every((part, i) => part.size === partBytes[i].length),
+			`sizes came back as ${parts.map((part) => part.size).join()}`
+		);
+	});
+
+	await check('assemble the parts into one object, byte for byte', async () => {
+		const parts = await listUploadedParts(storage, sourceKey(directId), uploadId);
+		await completeMultipartUpload(storage, sourceKey(directId), uploadId, parts);
+
+		const object = await openObject(storage, sourceKey(directId));
+		expect(object, 'the assembled object could not be opened');
+		expect(object.contentType === 'video/mp4', `content type came back as ${object.contentType}`);
+		expect(same(await readAll(object.body), Buffer.concat(partBytes)), 'the assembled bytes differ');
+	});
+
+	await check('abort an unfinished upload, and again when it is already gone', async () => {
+		const key = sourceKey(randomUUID());
+		const abandoned = await startMultipartUpload(storage, key, 'video/mp4');
+		const url = await signPartUpload(storage, key, abandoned, 1, 300);
+		await fetch(url, { method: 'PUT', body: pattern(1000) });
+
+		await abortMultipartUpload(storage, key, abandoned);
+		await abortMultipartUpload(storage, key, abandoned);
+		expect(!(await objectExists(storage, key)), 'an aborted upload left an object behind');
+	});
+
+	await check('allow browser uploads from one origin only', async () => {
+		// The bucket may be in real use: put its rules back afterwards.
+		const before = await getBrowserUploadOrigins(storage);
+		const origin = 'https://storage-check.example';
+		const endpoint = required('S3_ENDPOINT').replace(/\/$/, '');
+		const preflight = (from: string) =>
+			fetch(`${endpoint}/${required('S3_BUCKET')}/${sourceKey(directId)}`, {
+				method: 'OPTIONS',
+				headers: { origin: from, 'access-control-request-method': 'PUT' }
+			});
+
+		try {
+			await allowBrowserUploads(storage, [origin]);
+			expect((await getBrowserUploadOrigins(storage))?.join() === origin, 'the rules were not stored');
+
+			const allowed = await preflight(origin);
+			expect(
+				allowed.ok && allowed.headers.get('access-control-allow-origin') === origin,
+				`the allowed origin got ${allowed.status}, allow-origin ${allowed.headers.get('access-control-allow-origin')}`
+			);
+
+			const other = await preflight('https://somewhere-else.example');
+			expect(
+				other.headers.get('access-control-allow-origin') !== 'https://somewhere-else.example',
+				'another origin was allowed'
+			);
+		} finally {
+			if (before) await allowBrowserUploads(storage, before);
+			else await forbidBrowserUploads(storage);
+		}
+	});
+
+	await deleteVideoFiles(storage, directId).catch(() => {});
 
 	// More than 1000 keys, so the listing has to be read in more than one page.
 	const segments = 1100;
