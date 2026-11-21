@@ -42,8 +42,9 @@ flowchart LR
 
     viewer -- "pages, playlists, segments" --> proxy
     admin -- "management" --> proxy
-    admin -- "video files, in parts" --> garage
+    admin -- "video files, in parts" --> proxy
     proxy --> webapp
+    proxy -- "signed uploads only" --> garage
 
     webapp -- "read and write videos" --> postgres
     webapp -- "sign uploads,<br/>read HLS and posters" --> garage
@@ -57,8 +58,11 @@ flowchart LR
     registry -. "images pulled on deploy" .-> stack
 ```
 
-Only the web app is reachable from outside, and only through the proxy. Postgres
-and Garage have no published ports. The web app and the worker never talk to each
+Two things are reachable from outside, both only through the proxy: the web app,
+and Garage's S3 address, which browsers need in order to upload. The bucket is
+private, so that address answers nothing without a valid signature, and the only
+signatures handed out permit sending one part of one upload for an hour. Postgres
+is not reachable at all, and neither service publishes a port. The web app and the worker never talk to each
 other: they coordinate through the `status` column in Postgres and the files in
 the bucket.
 
@@ -215,6 +219,7 @@ Compose service's environment on the server.
 | `ADMIN_PASSWORD` | webapp | The single admin password |
 | `SESSION_SECRET` | webapp | Signs the admin session cookie; changing it signs everyone out |
 | `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it, and pages from it are the ones allowed to upload to storage |
+| `STORAGE_PUBLIC_URL` | Compose | The address browsers use to reach storage, for example `https://storage.example.com`. Becomes the web app's `S3_PUBLIC_ENDPOINT` |
 | `IMAGE_TAG` | Compose | Which image build to run. Defaults to `main`; set a commit SHA to roll back |
 | `GARAGE_CAPACITY_GB` | garage-init | Disk space Garage may use. Defaults to 100; read only on the first deploy |
 | `STORAGE_LIMIT_GB` | webapp, worker, garage-init | The most all videos together may hold. Defaults to 10. The apps keep count and refuse uploads past it |
@@ -261,6 +266,9 @@ flowchart LR
   must pass.
 - Images are built by GitHub Actions and pulled by the server. Nothing is built
   on the server.
+- The stack needs two hostnames in Dokploy: one for the `webapp` service on port
+  3000, and one for the `garage` service on port 3900, whose address goes in
+  `STORAGE_PUBLIC_URL`.
 - Deploys are started by hand in Dokploy, which runs `compose.yaml` from `main`.
   Automatic deploys are turned off there on purpose, so that a push cannot deploy
   before its images exist.
