@@ -29,8 +29,7 @@ import {
 	signPartUpload,
 	sourceKey,
 	startMultipartUpload,
-	uploadFile,
-	uploadStream
+	uploadFile
 } from './storage.ts';
 
 function required(name: string) {
@@ -84,61 +83,11 @@ function same(a: Uint8Array, b: Uint8Array) {
 console.log(`checking ${process.env.S3_ENDPOINT}, bucket ${process.env.S3_BUCKET}\n`);
 
 try {
-	// 40 MB is larger than one 16 MB part, so this takes the multipart path that
-	// real uploads use.
-	const large = pattern(40 * 1024 * 1024);
-
-	await check('stream a large upload in parts', async () => {
-		const body = new ReadableStream<Uint8Array>({
-			start(controller) {
-				// Hand it over in small pieces, as a browser upload arrives.
-				for (let at = 0; at < large.length; at += 256 * 1024) {
-					controller.enqueue(large.subarray(at, at + 256 * 1024));
-				}
-				controller.close();
-			}
-		});
-		await uploadStream(storage, sourceKey(videoId), body, 'video/mp4');
-	});
-
-	await check('see that an object exists', async () => {
-		expect(await objectExists(storage, sourceKey(videoId)), 'the uploaded object was not found');
-	});
-
-	await check('see that a missing object does not exist', async () => {
-		expect(!(await objectExists(storage, sourceKey(randomUUID()))), 'a missing object was reported');
-	});
-
-	await check('download to a file, byte for byte', async () => {
-		const path = join(dir, 'download');
-		await downloadToFile(storage, sourceKey(videoId), path);
-		expect(same(await readFile(path), large), 'the downloaded bytes differ from what was uploaded');
-	});
-
-	const small = pattern(70_000);
-	await writeFile(join(dir, 'small'), small);
-
-	await check('upload a file with its content type', async () => {
-		await uploadFile(storage, hlsKey(videoId, '720p/index.m3u8'), join(dir, 'small'), 'application/vnd.apple.mpegurl');
-		await uploadFile(storage, posterKey(videoId, 'large'), join(dir, 'small'), 'image/webp');
-		await uploadFile(storage, posterKey(videoId, 'small'), join(dir, 'small'), 'image/webp');
-	});
-
-	await check('open an object as a stream, with type and length', async () => {
-		const object = await openObject(storage, hlsKey(videoId, '720p/index.m3u8'));
-		expect(object, 'the object could not be opened');
-		expect(object.contentType === 'application/vnd.apple.mpegurl', `content type came back as ${object.contentType}`);
-		expect(object.contentLength === small.length, `content length came back as ${object.contentLength}`);
-		expect(same(await readAll(object.body), small), 'the streamed bytes differ from what was uploaded');
-	});
-
-	await check('get nothing, not an error, for a missing object', async () => {
-		expect((await openObject(storage, hlsKey(videoId, 'missing.m3u8'))) === null, 'expected null');
-	});
-
 	// ---- Direct uploads: what a browser does, done here with plain fetch and no credentials ----
 
-	const directId = randomUUID();
+	// The original of a video arrives this way. S3 wants every part but the last
+	// to be at least 5 MiB.
+	const directId = videoId;
 	const partBytes = [pattern(5 * 1024 * 1024), pattern(5 * 1024 * 1024 + 123), pattern(999)];
 	let uploadId = '';
 
@@ -185,6 +134,23 @@ try {
 		expect(same(await readAll(object.body), Buffer.concat(partBytes)), 'the assembled bytes differ');
 	});
 
+	await check('see that an object exists', async () => {
+		expect(await objectExists(storage, sourceKey(videoId)), 'the uploaded object was not found');
+	});
+
+	await check('see that a missing object does not exist', async () => {
+		expect(!(await objectExists(storage, sourceKey(randomUUID()))), 'a missing object was reported');
+	});
+
+	await check('download to a file, byte for byte', async () => {
+		const path = join(dir, 'download');
+		await downloadToFile(storage, sourceKey(videoId), path);
+		expect(
+			same(await readFile(path), Buffer.concat(partBytes)),
+			'the downloaded bytes differ from what was uploaded'
+		);
+	});
+
 	await check('abort an unfinished upload, and again when it is already gone', async () => {
 		const key = sourceKey(randomUUID());
 		const abandoned = await startMultipartUpload(storage, key, 'video/mp4');
@@ -228,7 +194,26 @@ try {
 		}
 	});
 
-	await deleteVideoFiles(storage, directId).catch(() => {});
+	const small = pattern(70_000);
+	await writeFile(join(dir, 'small'), small);
+
+	await check('upload a file with its content type', async () => {
+		await uploadFile(storage, hlsKey(videoId, '720p/index.m3u8'), join(dir, 'small'), 'application/vnd.apple.mpegurl');
+		await uploadFile(storage, posterKey(videoId, 'large'), join(dir, 'small'), 'image/webp');
+		await uploadFile(storage, posterKey(videoId, 'small'), join(dir, 'small'), 'image/webp');
+	});
+
+	await check('open an object as a stream, with type and length', async () => {
+		const object = await openObject(storage, hlsKey(videoId, '720p/index.m3u8'));
+		expect(object, 'the object could not be opened');
+		expect(object.contentType === 'application/vnd.apple.mpegurl', `content type came back as ${object.contentType}`);
+		expect(object.contentLength === small.length, `content length came back as ${object.contentLength}`);
+		expect(same(await readAll(object.body), small), 'the streamed bytes differ from what was uploaded');
+	});
+
+	await check('get nothing, not an error, for a missing object', async () => {
+		expect((await openObject(storage, hlsKey(videoId, 'missing.m3u8'))) === null, 'expected null');
+	});
 
 	// More than 1000 keys, so the listing has to be read in more than one page.
 	const segments = 1100;
