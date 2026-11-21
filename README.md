@@ -258,6 +258,9 @@ flowchart LR
 
 ## Design decisions and limits
 
+How the home page behaves under very high traffic, with and without a CDN, is
+written up separately in [docs/home-page-scaling.md](docs/home-page-scaling.md).
+
 - **Uploads and playback go through the web app**, not straight to the bucket.
   That keeps Garage private and needs no cross-origin setup. The cost is that all
   video traffic passes through the web app container.
