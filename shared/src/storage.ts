@@ -36,6 +36,11 @@ export function createStorage(config: StorageConfig) {
 
 export type Storage = ReturnType<typeof createStorage>;
 
+/** True when storage refused a write because the bucket has reached its size limit. */
+export function isStorageFull(cause: unknown) {
+	return cause instanceof Error && /quota is reached/i.test(cause.message);
+}
+
 /** Where the original upload of a video is kept. */
 export function sourceKey(videoId: string) {
 	return `sources/${videoId}`;

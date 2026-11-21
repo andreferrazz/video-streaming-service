@@ -8,6 +8,7 @@ import {
 	createStorage,
 	downloadToFile,
 	hlsKey,
+	isStorageFull,
 	posterKey,
 	sourceKey,
 	uploadFile
@@ -118,7 +119,11 @@ async function processVideo(video: Video) {
 			return;
 		}
 
-		const message = cause instanceof Error ? cause.message : String(cause);
+		const message = isStorageFull(cause)
+			? 'Storage is full. Delete some videos to make room, then try again.'
+			: cause instanceof Error
+				? cause.message
+				: String(cause);
 		await db
 			.update(videos)
 			.set({ status: 'failed', error: message.slice(0, 1000), updatedAt: new Date() })

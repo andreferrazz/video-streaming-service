@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { videos } from 'shared/db';
-import { sourceKey, uploadStream } from 'shared/storage';
+import { isStorageFull, sourceKey, uploadStream } from 'shared/storage';
 import { db } from '#lib/server/db.ts';
 import { storage } from '#lib/server/storage.ts';
 import type { RequestHandler } from './$types';
@@ -40,12 +40,18 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			request.headers.get('content-type') ?? 'application/octet-stream'
 		);
 	} catch (cause) {
+		// A full bucket is the admin's to fix, so say so plainly instead of a generic failure.
+		const full = isStorageFull(cause);
+		const message = full
+			? 'Storage is full. Delete some videos to make room, then upload again.'
+			: 'Upload failed.';
+
 		await db
 			.update(videos)
-			.set({ status: 'failed', error: 'Upload failed.', updatedAt: new Date() })
+			.set({ status: 'failed', error: message, updatedAt: new Date() })
 			.where(eq(videos.id, video.id));
 		console.error('upload failed', video.id, cause);
-		error(500, 'Upload failed.');
+		error(full ? 507 : 500, message);
 	}
 
 	await db
