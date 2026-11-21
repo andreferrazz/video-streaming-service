@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import {
+	ADMIN_HINT_COOKIE,
 	SESSION_COOKIE,
 	SESSION_MAX_AGE,
 	checkPassword,
@@ -19,6 +20,13 @@ export const actions: Actions = {
 		cookies.set(SESSION_COOKIE, createSession(), {
 			path: '/',
 			httpOnly: true,
+			sameSite: 'lax',
+			maxAge: SESSION_MAX_AGE
+		});
+		// Readable by the page, unlike the session itself. See ADMIN_HINT_COOKIE.
+		cookies.set(ADMIN_HINT_COOKIE, '1', {
+			path: '/',
+			httpOnly: false,
 			sameSite: 'lax',
 			maxAge: SESSION_MAX_AGE
 		});

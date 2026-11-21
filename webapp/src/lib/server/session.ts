@@ -2,6 +2,12 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ADMIN_PASSWORD, SESSION_SECRET } from '$app/env/private';
 
 export const SESSION_COOKIE = 'admin_session';
+/**
+ * A second cookie that page scripts can read. It grants nothing: it only tells
+ * the header to show the admin link, so public pages can be the same for
+ * everyone and therefore cacheable. Access is still decided by SESSION_COOKIE.
+ */
+export const ADMIN_HINT_COOKIE = 'admin_hint';
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // seconds
 
 function sign(value: string) {

@@ -10,7 +10,19 @@
 	import { SITE_NAME } from '#lib/site.ts';
 	import type { LayoutProps } from './$types';
 
-	let { data, children }: LayoutProps = $props();
+	let { children }: LayoutProps = $props();
+
+	// Whether to show the admin link. This is worked out in the browser from a
+	// hint cookie, not on the server, so the HTML of public pages is identical
+	// for every visitor and a shared cache can serve it. It decides nothing
+	// about access: /admin checks the real session.
+	let admin = $state(false);
+
+	$effect(() => {
+		// Read the path so this runs again after signing in or out.
+		void page.url.pathname;
+		admin = document.cookie.split('; ').some((cookie) => cookie.startsWith('admin_hint='));
+	});
 
 	const inAdmin = $derived(page.url.pathname.startsWith('/admin'));
 
@@ -50,7 +62,7 @@
 
 		<nav aria-label="Main">
 			<a href="/" aria-current={page.url.pathname === '/' ? 'page' : undefined}>Videos</a>
-			{#if data.admin}
+			{#if admin}
 				<a href="/admin" aria-current={inAdmin ? 'page' : undefined}>Admin</a>
 			{/if}
 		</nav>
@@ -64,7 +76,7 @@
 <footer>
 	<div class="page">
 		<span>{SITE_NAME}</span>
-		{#if !data.admin}
+		{#if !admin}
 			<a href="/admin/login">Admin</a>
 		{/if}
 	</div>

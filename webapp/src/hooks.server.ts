@@ -13,5 +13,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 		redirect(303, '/admin/login');
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+
+	// Admin pages show private data. Say so explicitly, so that no cache between
+	// the server and the browser ever keeps a copy, however it is configured.
+	if (isAdminPath) {
+		response.headers.set('cache-control', 'private, no-store');
+	}
+
+	return response;
 };
