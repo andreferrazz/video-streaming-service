@@ -1,11 +1,16 @@
 name: video-streaming-service
 
 # Settings the migration job, the web app and the worker all need.
+#
+# Storage defaults to the Garage in this file. To use any other S3-compatible
+# storage, set EXTERNAL_S3_ENDPOINT (and the other EXTERNAL_S3_* values it needs)
+# together with GARAGE_REPLICAS=0. See docs/storage.md.
 x-app-env: &app-env
   DATABASE_URL: postgres://videos:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/videos
-  S3_ENDPOINT: http://garage:3900
-  S3_REGION: garage
-  S3_BUCKET: videos
+  S3_ENDPOINT: ${EXTERNAL_S3_ENDPOINT:-http://garage:3900}
+  S3_REGION: ${EXTERNAL_S3_REGION:-garage}
+  S3_BUCKET: ${EXTERNAL_S3_BUCKET:-videos}
+  S3_FORCE_PATH_STYLE: ${EXTERNAL_S3_FORCE_PATH_STYLE:-true}
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
 
@@ -37,14 +42,18 @@ services:
   garage:
     image: dxflrs/garage:v2.5.0
     deploy:
+      # Set GARAGE_REPLICAS=0 to not run Garage at all, when storage is external.
+      replicas: ${GARAGE_REPLICAS:-1}
       resources:
         limits:
           cpus: '1.0'
           memory: 512M
     restart: unless-stopped
     environment:
-      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?set GARAGE_RPC_SECRET}
-      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?set GARAGE_ADMIN_TOKEN}
+      # Not marked as required here, because they are unused with external storage.
+      # Garage refuses to start without them, so a missing value still fails loudly.
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-}
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
@@ -52,6 +61,7 @@ services:
 
   # Prepares Garage on every deploy: storage role, bucket and the app's access
   # key. It only changes anything the first time; after that each step is skipped.
+  # With external storage it has nothing to do and exits straight away.
   garage-init:
     image: ghcr.io/andreferrazz/video-streaming-service-worker:${IMAGE_TAG:-main}
     pull_policy: always
@@ -64,16 +74,14 @@ services:
     restart: 'no'
     environment:
       <<: *app-env
+      EXTERNAL_S3_ENDPOINT: ${EXTERNAL_S3_ENDPOINT:-}
       GARAGE_ADMIN_URL: http://garage:3903
-      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?set GARAGE_ADMIN_TOKEN}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-}
       # Disk space Garage may use, in gigabytes. Read only on the first deploy.
       GARAGE_CAPACITY_GB: ${GARAGE_CAPACITY_GB:-100}
       # The most the bucket may hold, in gigabytes. Garage refuses uploads past
       # it, so video can never fill the server's disk. Applied on every deploy.
       GARAGE_MAX_SIZE_GB: ${GARAGE_MAX_SIZE_GB:-10}
-    depends_on:
-      garage:
-        condition: service_started
 
   # Runs once per deploy and exits; the apps wait for it to succeed.
   migrate:

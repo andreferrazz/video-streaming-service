@@ -28,6 +28,67 @@ jobs:
       - run: pnpm --filter worker check
       - run: pnpm check
 
+  # Runs every storage operation the apps use against two unrelated S3 servers:
+  # Garage, which the stack ships with, and Versity Gateway. Passing on both is
+  # the evidence that storage can be swapped by changing settings only.
+  storage:
+    runs-on: ubuntu-24.04
+    env:
+      # Throwaway credentials for servers that exist only during this job.
+      GARAGE_KEY_ID: GK00000000000000000000c1c1
+      GARAGE_KEY_SECRET: 00000000000000000000000000000000000000000000000000000000000c1c1c
+      OTHER_KEY_ID: ci-access-key
+      OTHER_KEY_SECRET: ci-secret-key-0123456789
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start both servers
+        run: |
+          docker run -d --name garage -p 3900:3900 -p 3903:3903 \
+            -e GARAGE_RPC_SECRET="$(openssl rand -hex 32)" -e GARAGE_ADMIN_TOKEN=ci-admin-token \
+            -v "$PWD/garage/garage.toml:/etc/garage.toml:ro" dxflrs/garage:v2.5.0
+          docker run -d --name other -p 7070:7070 \
+            -e ROOT_ACCESS_KEY="$OTHER_KEY_ID" -e ROOT_SECRET_KEY="$OTHER_KEY_SECRET" \
+            --tmpfs /data versity/versitygw:v1.11.0 posix /data
+      - name: Prepare Garage with the project's own setup job
+        working-directory: shared
+        env:
+          GARAGE_ADMIN_URL: http://localhost:3903
+          GARAGE_ADMIN_TOKEN: ci-admin-token
+          GARAGE_CAPACITY_GB: 5
+          S3_BUCKET: videos
+          S3_ACCESS_KEY_ID: ${{ env.GARAGE_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ env.GARAGE_KEY_SECRET }}
+        run: node src/garage-init.ts
+      - name: Check storage on Garage
+        working-directory: shared
+        env:
+          S3_ENDPOINT: http://localhost:3900
+          S3_REGION: garage
+          S3_BUCKET: videos
+          S3_ACCESS_KEY_ID: ${{ env.GARAGE_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ env.GARAGE_KEY_SECRET }}
+        run: node src/storage-check.ts
+      - name: Create the bucket on the second server
+        run: |
+          curl --fail-with-body -sS --retry 10 --retry-connrefused --retry-delay 1 -X PUT \
+            --aws-sigv4 "aws:amz:us-east-1:s3" --user "$OTHER_KEY_ID:$OTHER_KEY_SECRET" \
+            http://localhost:7070/videos
+      - name: Check storage on the second server
+        working-directory: shared
+        env:
+          S3_ENDPOINT: http://localhost:7070
+          S3_REGION: us-east-1
+          S3_BUCKET: videos
+          S3_ACCESS_KEY_ID: ${{ env.OTHER_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ env.OTHER_KEY_SECRET }}
+        run: node src/storage-check.ts
+
   images:
     needs: check
     runs-on: ubuntu-24.04
