@@ -3,14 +3,23 @@ import { readFile } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
+	AbortMultipartUploadCommand,
+	CompleteMultipartUploadCommand,
+	CreateMultipartUploadCommand,
+	DeleteBucketCorsCommand,
 	DeleteObjectCommand,
+	GetBucketCorsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
+	ListPartsCommand,
+	PutBucketCorsCommand,
 	PutObjectCommand,
-	S3Client
+	S3Client,
+	UploadPartCommand
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export interface StorageConfig {
 	endpoint: string;
@@ -24,20 +33,36 @@ export interface StorageConfig {
 	 * hosted providers prefer false.
 	 */
 	forcePathStyle: boolean;
+	/**
+	 * The address browsers use to reach the same storage, when it differs from
+	 * `endpoint`. Signed upload addresses are made for this one. Inside a
+	 * deployment the apps reach storage by an internal name that a browser cannot.
+	 */
+	publicEndpoint?: string;
 }
 
 export function createStorage(config: StorageConfig) {
-	const client = new S3Client({
-		endpoint: config.endpoint,
+	const options = {
 		region: config.region,
 		credentials: {
 			accessKeyId: config.accessKeyId,
 			secretAccessKey: config.secretAccessKey
 		},
-		forcePathStyle: config.forcePathStyle
+		forcePathStyle: config.forcePathStyle,
+		// Only add checksums where S3 demands them. By default the library signs one
+		// into every upload address, and a browser sending a part cannot supply it.
+		requestChecksumCalculation: 'WHEN_REQUIRED',
+		responseChecksumValidation: 'WHEN_REQUIRED'
+	} as const;
+
+	const client = new S3Client({ ...options, endpoint: config.endpoint });
+	// Used only to make signed addresses; it never sends a request itself.
+	const publicClient = new S3Client({
+		...options,
+		endpoint: config.publicEndpoint ?? config.endpoint
 	});
 
-	return { client, bucket: config.bucket };
+	return { client, publicClient, bucket: config.bucket };
 }
 
 export type Storage = ReturnType<typeof createStorage>;
@@ -232,4 +257,150 @@ export async function deleteVideoFiles(
 			}
 		})
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Direct uploads
+//
+// A large file is uploaded by the browser straight to storage, in parts. The
+// app opens the upload, hands out a signed address per part, and finally asks
+// storage what arrived before assembling the file. Nothing here trusts the
+// browser's own account of what it sent.
+// ---------------------------------------------------------------------------
+
+/** One part of a multipart upload that storage has received. */
+export interface UploadedPart {
+	partNumber: number;
+	size: number;
+	etag: string;
+}
+
+/** Open a multipart upload and return the id that names it from then on. */
+export async function startMultipartUpload(storage: Storage, key: string, contentType: string) {
+	const response = await storage.client.send(
+		new CreateMultipartUploadCommand({ Bucket: storage.bucket, Key: key, ContentType: contentType })
+	);
+	if (!response.UploadId) throw new Error(`Storage did not return an upload id for ${key}`);
+	return response.UploadId;
+}
+
+/**
+ * An address a browser can PUT one part to, with no credentials of its own. It
+ * is good for that part of that upload only, and only for `expiresInSeconds`.
+ */
+export async function signPartUpload(
+	storage: Storage,
+	key: string,
+	uploadId: string,
+	partNumber: number,
+	expiresInSeconds: number
+) {
+	return getSignedUrl(
+		storage.publicClient,
+		new UploadPartCommand({
+			Bucket: storage.bucket,
+			Key: key,
+			UploadId: uploadId,
+			PartNumber: partNumber
+		}),
+		{ expiresIn: expiresInSeconds }
+	);
+}
+
+/** The parts storage holds for an upload, in order. Used to resume and to finish. */
+export async function listUploadedParts(storage: Storage, key: string, uploadId: string) {
+	const parts: UploadedPart[] = [];
+
+	// Listed at most 1000 at a time; an upload may have up to 10,000 parts.
+	let marker: string | undefined;
+	do {
+		const page = await storage.client.send(
+			new ListPartsCommand({
+				Bucket: storage.bucket,
+				Key: key,
+				UploadId: uploadId,
+				PartNumberMarker: marker
+			})
+		);
+		for (const part of page.Parts ?? []) {
+			if (part.PartNumber && part.ETag) {
+				parts.push({ partNumber: part.PartNumber, size: part.Size ?? 0, etag: part.ETag });
+			}
+		}
+		marker = page.IsTruncated ? page.NextPartNumberMarker : undefined;
+	} while (marker);
+
+	return parts.sort((a, b) => a.partNumber - b.partNumber);
+}
+
+/** Assemble the given parts into the final object. */
+export async function completeMultipartUpload(
+	storage: Storage,
+	key: string,
+	uploadId: string,
+	parts: UploadedPart[]
+) {
+	await storage.client.send(
+		new CompleteMultipartUploadCommand({
+			Bucket: storage.bucket,
+			Key: key,
+			UploadId: uploadId,
+			MultipartUpload: {
+				Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag }))
+			}
+		})
+	);
+}
+
+/** Give up on an upload and free the parts it had stored. Fine to call twice. */
+export async function abortMultipartUpload(storage: Storage, key: string, uploadId: string) {
+	try {
+		await storage.client.send(
+			new AbortMultipartUploadCommand({ Bucket: storage.bucket, Key: key, UploadId: uploadId })
+		);
+	} catch (cause) {
+		if (cause instanceof Error && cause.name === 'NoSuchUpload') return;
+		throw cause;
+	}
+}
+
+/** The origins currently allowed to upload from a browser, or null if none are set. */
+export async function getBrowserUploadOrigins(storage: Storage) {
+	try {
+		const response = await storage.client.send(new GetBucketCorsCommand({ Bucket: storage.bucket }));
+		return response.CORSRules?.flatMap((rule) => rule.AllowedOrigins ?? []) ?? null;
+	} catch (cause) {
+		if (cause instanceof Error && cause.name === 'NoSuchCORSConfiguration') return null;
+		throw cause;
+	}
+}
+
+/**
+ * Let pages served from `origins` send parts to the bucket. Browsers refuse a
+ * cross-origin upload unless storage says the page's origin is welcome. This
+ * replaces whatever rules the bucket had.
+ */
+export async function allowBrowserUploads(storage: Storage, origins: string[]) {
+	await storage.client.send(
+		new PutBucketCorsCommand({
+			Bucket: storage.bucket,
+			CORSConfiguration: {
+				CORSRules: [
+					{
+						AllowedOrigins: origins,
+						AllowedMethods: ['PUT'],
+						AllowedHeaders: ['*'],
+						// The page may read this header, though the app does not rely on it.
+						ExposeHeaders: ['ETag'],
+						MaxAgeSeconds: 3600
+					}
+				]
+			}
+		})
+	);
+}
+
+/** Remove the bucket's cross-origin rules, so no page may upload from a browser. */
+export async function forbidBrowserUploads(storage: Storage) {
+	await storage.client.send(new DeleteBucketCorsCommand({ Bucket: storage.bucket }));
 }
