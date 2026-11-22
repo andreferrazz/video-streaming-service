@@ -14,8 +14,21 @@ if (!Number.isFinite(uploadExpiryHours) || uploadExpiryHours <= 0) {
 	throw new Error('UPLOAD_EXPIRY_HOURS must be a positive number');
 }
 
+function positive(name: string, fallback: number) {
+	const value = Number(process.env[name] || fallback);
+	if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
+	return value;
+}
+
 export const config = {
 	databaseUrl: required('DATABASE_URL'),
+	/**
+	 * How long a worker's claim on a video lasts without being renewed. A worker
+	 * renews three times within it; if it dies, another takes over after this long.
+	 */
+	leaseSeconds: positive('WORKER_LEASE_SECONDS', 60),
+	/** A video that has taken its worker down this many times is given up on. */
+	maxAttempts: Math.floor(positive('WORKER_MAX_ATTEMPTS', 3)),
 	/** An upload with no activity for this long is treated as abandoned. */
 	uploadExpiryMs: uploadExpiryHours * 60 * 60 * 1000,
 	/** The most all videos together may hold in storage, in bytes. */

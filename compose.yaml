@@ -135,12 +135,21 @@ services:
     image: ghcr.io/andreferrazz/video-streaming-service-worker:${IMAGE_TAG:-main}
     pull_policy: always
     deploy:
+      # Workers share the queue safely, so more than one can run. Each takes
+      # up to the CPU and memory below.
+      replicas: ${WORKER_REPLICAS:-1}
       resources:
         limits:
           cpus: '2.0'
           memory: 2G
     restart: unless-stopped
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # Seconds a worker's claim on a video lasts without being renewed. If a
+      # worker dies, another takes its video over after this long.
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-60}
+      # A video that has taken its worker down this many times is given up on.
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
     depends_on:
       migrate:
         condition: service_completed_successfully
