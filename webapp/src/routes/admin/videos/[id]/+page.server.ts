@@ -61,7 +61,16 @@ export const actions: Actions = {
 
 		const updated = await db
 			.update(videos)
-			.set({ status: 'queued', progress: 0, error: null, updatedAt: new Date() })
+			.set({
+				status: 'queued',
+				progress: 0,
+				error: null,
+				// A deliberate retry starts with a clean slate.
+				attempts: 0,
+				lockedBy: null,
+				lockedUntil: null,
+				updatedAt: new Date()
+			})
 			.where(and(eq(videos.id, params.id), eq(videos.status, 'failed')))
 			.returning({ id: videos.id });
 

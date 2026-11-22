@@ -1,4 +1,4 @@
-import { bigint, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const videoStatus = pgEnum('video_status', [
 	'uploading',
@@ -27,10 +27,20 @@ export const videos = pgTable('videos', {
 	uploadId: text('upload_id'),
 	uploadBytes: bigint('upload_bytes', { mode: 'number' }),
 	uploadPartBytes: integer('upload_part_bytes'),
+	// A worker's lease on this video while it is processing it. The worker renews
+	// `lockedUntil` as it goes; if it stops renewing, another worker may take over.
+	lockedBy: text('locked_by'),
+	lockedUntil: timestamp('locked_until', { withTimezone: true }),
+	// How many times a worker has started on it. A video that keeps taking its
+	// worker down is given up on, so it cannot block the queue for ever.
+	attempts: integer('attempts').notNull().default(0),
 	publishedAt: timestamp('published_at', { withTimezone: true }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-});
+}, (table) => [
+	// What a worker looks for: the oldest video in a given state.
+	index('videos_status_created_at_idx').on(table.status, table.createdAt)
+]);
 
 export type Video = typeof videos.$inferSelect;
 export type NewVideo = typeof videos.$inferInsert;

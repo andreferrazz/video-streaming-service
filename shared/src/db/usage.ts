@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from './index.ts';
 import { videos } from './schema.ts';
 
@@ -53,4 +53,54 @@ export async function adjustStorage(db: Db, videoId: string, deltaBytes: number)
 /** Record exactly what a video holds, replacing whatever was counted before. */
 export async function setStorage(db: Db, videoId: string, bytes: number) {
 	await db.update(videos).set({ storedBytes: bytes }).where(eq(videos.id, videoId));
+}
+
+/**
+ * Like reserveStorage, for a worker: the room is only set aside if `owner` still
+ * holds the lease on the video. A worker that was presumed dead and replaced
+ * must not add to a count its successor is now responsible for.
+ */
+export async function reserveStorageAs(
+	db: Db,
+	videoId: string,
+	owner: string,
+	bytes: number,
+	limitBytes: number
+): Promise<'reserved' | 'full' | 'lost'> {
+	return db.transaction(async (tx) => {
+		await tx.execute(sql`select pg_advisory_xact_lock(${RESERVATION_LOCK})`);
+
+		const [row] = await tx
+			.select({ used: sql<string>`coalesce(sum(${videos.storedBytes}), 0)` })
+			.from(videos);
+		if (Number(row.used) + bytes > limitBytes) return 'full';
+
+		const updated = await tx
+			.update(videos)
+			.set({ storedBytes: sql`${videos.storedBytes} + ${bytes}` })
+			.where(and(eq(videos.id, videoId), eq(videos.lockedBy, owner)))
+			.returning({ id: videos.id });
+		return updated.length > 0 ? 'reserved' : 'lost';
+	});
+}
+
+/** Give room back, but only while `owner` still holds the lease on the video. */
+export async function releaseStorageAs(db: Db, videoId: string, owner: string, bytes: number) {
+	await db
+		.update(videos)
+		.set({ storedBytes: sql`greatest(${videos.storedBytes} - ${bytes}, 0)` })
+		.where(and(eq(videos.id, videoId), eq(videos.lockedBy, owner)));
+}
+
+/**
+ * Record what a video holds, but only if nothing is recorded yet. Several
+ * workers may measure the same old video at the same moment; only one may count it.
+ */
+export async function setStorageIfUncounted(db: Db, videoId: string, bytes: number) {
+	const updated = await db
+		.update(videos)
+		.set({ storedBytes: bytes })
+		.where(and(eq(videos.id, videoId), eq(videos.storedBytes, 0)))
+		.returning({ id: videos.id });
+	return updated.length > 0;
 }

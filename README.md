@@ -69,7 +69,7 @@ the bucket.
 | Part | What it does |
 |---|---|
 | **webapp** | Serves every page, coordinates uploads that browsers send straight to storage, and streams playlists, segments and posters out to players. |
-| **worker** | Has no web server. Polls for queued videos, transcodes each with ffmpeg and stores the result. |
+| **worker** | Has no web server. Polls for queued videos, transcodes each with ffmpeg and stores the result. Several can run side by side. |
 | **Postgres** | One `videos` table. Its `status` column doubles as the job queue. |
 | **Garage** | Holds the original uploads, the HLS output and the posters in one private bucket. Replaceable by any S3-compatible storage; see [docs/storage.md](docs/storage.md). |
 | **migrate** | Applies pending database migrations, then exits. The apps wait for it. |
@@ -85,7 +85,8 @@ stateDiagram-v2
     queued --> processing: worker claims it
     processing --> ready: HLS and poster stored
     processing --> failed: ffmpeg or storage error
-    processing --> queued: worker stopped or restarted
+    processing --> queued: worker stopped politely
+    processing --> processing: worker died, another takes over
     failed --> queued: admin retries
     ready --> [*]: admin deletes it
     failed --> [*]: admin deletes it
@@ -216,6 +217,9 @@ Compose service's environment on the server.
 | `S3_PUBLIC_ENDPOINT` | webapp | The address browsers use to reach storage, if different from `S3_ENDPOINT`. Signed upload addresses are made for it |
 | `UPLOAD_MAX_GB` | webapp | The largest single file accepted. Defaults to 20 |
 | `UPLOAD_EXPIRY_HOURS` | worker | An unfinished upload with no activity for this long is discarded. Defaults to 24 |
+| `WORKER_REPLICAS` | Compose | How many workers run. Defaults to 1; each may use 2 cores and 2 GB |
+| `WORKER_LEASE_SECONDS` | worker | How long a worker's claim on a video lasts without renewal. Defaults to 60; a dead worker's video is taken over after this long |
+| `WORKER_MAX_ATTEMPTS` | worker | A video that has taken its worker down this many times is given up on. Defaults to 3 |
 | `ADMIN_PASSWORD` | webapp | The single admin password |
 | `SESSION_SECRET` | webapp | Signs the admin session cookie; changing it signs everyone out |
 | `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it, and pages from it are the ones allowed to upload to storage |
@@ -296,9 +300,14 @@ up separately: [the home page alone](docs/home-page-scaling.md), and
   changes nothing visible; it makes the page ready for one.
 - **The player fetches no video until play is pressed**, and then keeps about 30
   seconds ready. Opening a video and leaving costs almost nothing.
-- **One worker.** At startup the worker requeues every video left in `processing`,
-  which would steal jobs from a second worker. Running several needs a heartbeat
-  first.
+- **Workers share the queue through leases.** A worker that takes a video writes
+  its name and an expiry time on it, and keeps renewing while it works. If it
+  dies, the time passes and another worker takes the video over, clearing
+  whatever the first had half stored. A worker that was only slow, and wakes to
+  find it has been replaced, stops without touching anything. A video that takes
+  its worker down three times is marked failed, so it cannot block the queue.
+  `WORKER_REPLICAS` sets how many run; they can also run on other machines, as
+  long as they reach the database and the storage.
 - **1080p is the highest quality.** Larger sources are downscaled.
 - **A single admin**, with one password and no rate limiting on the login.
 - **Published segments are cacheable for a day** and playlists for a minute, so a
