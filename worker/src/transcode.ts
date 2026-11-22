@@ -83,6 +83,11 @@ function renditionsFor(source: SourceInfo) {
  * Transcode `input` into HLS under `outDir`: one folder per rendition plus a
  * master playlist that lists them, and the poster images. `onProgress` receives
  * a value from 0 to 100.
+ *
+ * All renditions come out of a single ffmpeg run. The source is decoded once
+ * and the picture is handed to one scaler and encoder per rendition. Decoding
+ * is the expensive part of a large source, and running ffmpeg once per
+ * rendition would repeat it each time.
  */
 export async function transcode(
 	input: string,
@@ -94,43 +99,44 @@ export async function transcode(
 	const renditions = renditionsFor(source);
 	const master = ['#EXTM3U', '#EXT-X-VERSION:3'];
 
-	for (const [index, rendition] of renditions.entries()) {
+	// Split the decoded picture into one copy per rendition and scale each:
+	//   [0:v:0]split=2[s0][s1];[s0]scale=1920:1080[v0];[s1]scale=1280:720[v1]
+	const copies = renditions.map((_, i) => `[s${i}]`).join('');
+	const scalers = renditions.map((r, i) => `[s${i}]scale=${r.width}:${r.height}[v${i}]`);
+	const filter = [`[0:v:0]split=${renditions.length}${copies}`, ...scalers].join(';');
+
+	const args = [
+		'-y', '-v', 'error', '-nostdin',
+		'-i', input,
+		'-filter_complex', filter
+	];
+
+	for (const [i, rendition] of renditions.entries()) {
 		const dir = join(outDir, rendition.name);
 		await mkdir(dir, { recursive: true });
 
-		const args = [
-			'-y', '-v', 'error', '-nostdin',
-			'-i', input,
-			'-map', '0:v:0',
-			'-vf', `scale=${rendition.width}:${rendition.height}`,
+		// Everything from here to the playlist path describes this one output.
+			args.push(
+			'-map', `[v${i}]`,
 			'-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'main', '-pix_fmt', 'yuv420p',
 			'-crf', '21',
 			'-maxrate', `${rendition.kbps}k`, '-bufsize', `${rendition.kbps * 2}k`,
 			// A keyframe exactly every segment, in every rendition, so the player can switch quality at any segment.
 			'-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_SECONDS})`,
 			'-sc_threshold', '0'
-		];
+		);
 
 		if (source.hasAudio) {
 			args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', `${AUDIO_KBPS}k`, '-ac', '2');
 		}
 
-		args.push(
+			args.push(
 			'-f', 'hls',
 			'-hls_time', String(SEGMENT_SECONDS),
 			'-hls_playlist_type', 'vod',
 			'-hls_segment_filename', join(dir, 'seg_%05d.ts'),
-			'-progress', 'pipe:1',
 			join(dir, 'index.m3u8')
 		);
-
-		await run('ffmpeg', args, signal, (line) => {
-			// ffmpeg reports how far into the video it is, in microseconds.
-			const match = /^out_time_us=(\d+)$/.exec(line);
-			if (!match || source.durationSeconds <= 0) return;
-			const fraction = Math.min(Number(match[1]) / 1_000_000 / source.durationSeconds, 1);
-			onProgress(Math.floor(((index + fraction) / renditions.length) * 100));
-		});
 
 		const bandwidth = (rendition.kbps + (source.hasAudio ? AUDIO_KBPS : 0)) * 1000;
 		master.push(
@@ -138,6 +144,17 @@ export async function transcode(
 			`${rendition.name}/index.m3u8`
 		);
 	}
+
+	// A global option, so it goes after the outputs it reports on.
+	args.push('-progress', 'pipe:1');
+
+	await run('ffmpeg', args, signal, (line) => {
+		// ffmpeg reports how far into the video it is, in microseconds.
+		const match = /^out_time_us=(\d+)$/.exec(line);
+		if (!match || source.durationSeconds <= 0) return;
+		const fraction = Math.min(Number(match[1]) / 1_000_000 / source.durationSeconds, 1);
+		onProgress(Math.floor(fraction * 100));
+	});
 
 	await writeFile(join(outDir, 'master.m3u8'), master.join('\n') + '\n');
 

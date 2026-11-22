@@ -136,12 +136,13 @@ services:
     pull_policy: always
     deploy:
       # Workers share the queue safely, so more than one can run. Each takes
-      # up to the CPU and memory below.
+      # up to the CPU and memory below. Encoding every quality in one ffmpeg
+      # run peaked at about 1.7 GB with a 4K source, file cache included.
       replicas: ${WORKER_REPLICAS:-1}
       resources:
         limits:
           cpus: '2.0'
-          memory: 2G
+          memory: 3G
     restart: unless-stopped
     environment:
       <<: *app-env
