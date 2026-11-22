@@ -208,9 +208,12 @@ Compose service's environment on the server.
 | `S3_FORCE_PATH_STYLE` | webapp, worker | How the bucket is addressed. Defaults to `true`, which Garage needs |
 | `EXTERNAL_S3_*`, `GARAGE_REPLICAS` | Compose | Use storage other than the bundled Garage. See [docs/storage.md](docs/storage.md) |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | webapp, worker, garage-init | The storage key pair. Chosen by you and imported into Garage |
+| `S3_PUBLIC_ENDPOINT` | webapp | The address browsers use to reach storage, if different from `S3_ENDPOINT`. Signed upload addresses are made for it |
+| `UPLOAD_MAX_GB` | webapp | The largest single file accepted. Defaults to 20 |
+| `UPLOAD_EXPIRY_HOURS` | worker | An unfinished upload with no activity for this long is discarded. Defaults to 24 |
 | `ADMIN_PASSWORD` | webapp | The single admin password |
 | `SESSION_SECRET` | webapp | Signs the admin session cookie; changing it signs everyone out |
-| `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it |
+| `ORIGIN` | webapp | Public address of the site. Form posts are rejected without it, and pages from it are the ones allowed to upload to storage |
 | `IMAGE_TAG` | Compose | Which image build to run. Defaults to `main`; set a commit SHA to roll back |
 | `GARAGE_CAPACITY_GB` | garage-init | Disk space Garage may use. Defaults to 100; read only on the first deploy |
 | `STORAGE_LIMIT_GB` | webapp, worker, garage-init | The most all videos together may hold. Defaults to 10. The apps keep count and refuse uploads past it |

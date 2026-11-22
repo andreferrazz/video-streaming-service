@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import {
 	adjustStorage,
 	createDb,
@@ -13,6 +13,7 @@ import {
 } from 'shared/db';
 import {
 	StorageFullError,
+	abortMultipartUpload,
 	createStorage,
 	deleteVideoFiles,
 	downloadToFile,
@@ -29,6 +30,7 @@ import { config } from './config.ts';
 import { POSTER_LARGE, POSTER_SMALL, makePosters, probe, transcode } from './transcode.ts';
 
 const POLL_MS = 2000;
+const UPLOAD_CLEANUP_MS = 10 * 60 * 1000;
 const UPLOAD_CONCURRENCY = 8;
 
 const db = createDb(config.databaseUrl);
@@ -241,6 +243,33 @@ async function backfillStoredBytes() {
 	}
 }
 
+/**
+ * An upload that stopped partway keeps its parts in storage and its room
+ * reserved. If nothing has happened to it for a while, nobody is coming back:
+ * discard the parts and remove the row, which releases the room.
+ */
+async function removeAbandonedUploads() {
+	const abandoned = await db
+		.select({ id: videos.id, uploadId: videos.uploadId })
+		.from(videos)
+		.where(
+			and(
+				eq(videos.status, 'uploading'),
+				lt(videos.updatedAt, new Date(Date.now() - config.uploadExpiryMs))
+			)
+		);
+
+	for (const { id, uploadId } of abandoned) {
+		try {
+			if (uploadId) await abortMultipartUpload(storage, sourceKey(id), uploadId);
+			await db.delete(videos).where(and(eq(videos.id, id), eq(videos.status, 'uploading')));
+			console.log(`removed abandoned upload ${id}`);
+		} catch (cause) {
+			console.error(`could not remove abandoned upload ${id}`, cause);
+		}
+	}
+}
+
 // A video still marked as processing at startup belongs to a worker that died. Run it again.
 // This assumes a single worker; with several, each would steal the others' jobs here.
 const stale = await db
@@ -263,7 +292,14 @@ console.log('worker started');
 await backfillPosters();
 await backfillStoredBytes();
 
+let lastUploadCleanup = 0;
+
 while (!shutdown.signal.aborted) {
+	if (Date.now() - lastUploadCleanup > UPLOAD_CLEANUP_MS) {
+		lastUploadCleanup = Date.now();
+		await removeAbandonedUploads().catch((cause) => console.error('upload cleanup failed', cause));
+	}
+
 	const video = await claimNext();
 	if (video) {
 		console.log(`processing ${video.id} "${video.title}"`);

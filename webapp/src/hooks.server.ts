@@ -1,6 +1,25 @@
 import { redirect } from '@sveltejs/kit';
-import type { Handle } from '@sveltejs/kit/hooks';
+import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
+import { allowBrowserUploads } from 'shared/storage';
+import { building } from '$app/env';
+import { ORIGIN } from '$app/env/private';
 import { SESSION_COOKIE, isValidSession } from '#lib/server/session.ts';
+import { storage } from '#lib/server/storage.ts';
+
+/**
+ * Runs once when the server starts. Browsers send upload parts straight to
+ * storage, which they will only do if storage says pages from this site may.
+ * Setting that here, not in a deployment script, works with any provider.
+ */
+export const init: ServerInit = async () => {
+	if (building) return;
+	try {
+		await allowBrowserUploads(storage, [ORIGIN]);
+	} catch (cause) {
+		// The site still works without it; only uploads from the browser would fail.
+		console.error(`could not allow browser uploads from ${ORIGIN}`, cause);
+	}
+};
 
 // Pages and their data are text and shrink to about a third. Scripts and styles
 // are compressed ahead of time by the build; images and video already are.

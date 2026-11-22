@@ -9,8 +9,15 @@ if (!Number.isFinite(storageLimitGb) || storageLimitGb <= 0) {
 	throw new Error('STORAGE_LIMIT_GB must be a positive number');
 }
 
+const uploadExpiryHours = Number(process.env.UPLOAD_EXPIRY_HOURS || 24);
+if (!Number.isFinite(uploadExpiryHours) || uploadExpiryHours <= 0) {
+	throw new Error('UPLOAD_EXPIRY_HOURS must be a positive number');
+}
+
 export const config = {
 	databaseUrl: required('DATABASE_URL'),
+	/** An upload with no activity for this long is treated as abandoned. */
+	uploadExpiryMs: uploadExpiryHours * 60 * 60 * 1000,
 	/** The most all videos together may hold in storage, in bytes. */
 	storageLimitBytes: storageLimitGb * 1_000_000_000,
 	storage: {

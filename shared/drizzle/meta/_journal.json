@@ -15,6 +15,13 @@
       "when": 1795275518397,
       "tag": "0001_fresh_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795280816299,
+      "tag": "0002_dashing_night_nurse",
+      "breakpoints": true
     }
   ]
 }
