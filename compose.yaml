@@ -16,6 +16,8 @@ x-app-env: &app-env
   # The most all videos together may hold, in gigabytes. The apps keep count and
   # refuse uploads past it, so video can never fill the server's disk.
   STORAGE_LIMIT_GB: ${STORAGE_LIMIT_GB:-10}
+  # Hours without activity before an unfinished upload is discarded.
+  UPLOAD_EXPIRY_HOURS: ${UPLOAD_EXPIRY_HOURS:-24}
 
 # Resource limits are sized for a 6-core, 12 GB server shared with other
 # projects. The worker's CPU limit is the one that matters: ffmpeg takes every
@@ -112,8 +114,16 @@ services:
       <<: *app-env
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
-      # The public address of the site, e.g. https://videos.example.com. Forms are rejected without it.
+      # The public address of the site, e.g. https://videos.example.com. Forms are
+      # rejected without it, and its pages are the ones allowed to upload to storage.
       ORIGIN: ${ORIGIN:?set ORIGIN}
+      # The address browsers use to reach storage: uploads go there directly. With
+      # the bundled Garage it is the hostname given to the garage service, e.g.
+      # https://storage.example.com. With external storage it is that storage's own
+      # address, so STORAGE_PUBLIC_URL can be left unset.
+      S3_PUBLIC_ENDPOINT: ${STORAGE_PUBLIC_URL:-${EXTERNAL_S3_ENDPOINT:?set STORAGE_PUBLIC_URL}}
+      # The largest single file accepted, in gigabytes.
+      UPLOAD_MAX_GB: ${UPLOAD_MAX_GB:-20}
       PORT: 3000
     depends_on:
       migrate:

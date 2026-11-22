@@ -63,7 +63,11 @@ Two things this needs from storage, beyond the operations above:
 
 - **Browsers must be able to reach it.** Signed addresses are made for
   `S3_PUBLIC_ENDPOINT`, or for `S3_ENDPOINT` when that is not set. Locally the
-  browser reaches Garage on `localhost:3900` directly.
+  browser reaches Garage on `localhost:3900` directly. On the deployed stack the
+  apps reach Garage by an internal name, so the `garage` service is given its own
+  hostname in Dokploy (port 3900) and that address is set as
+  `STORAGE_PUBLIC_URL`. With external storage the provider's address is already
+  public and is used as is.
 - **It must allow the site's pages to upload.** The web app sets the bucket's
   cross-origin rules at startup, for the origin in `ORIGIN`. Locally that defaults
   to `http://localhost:5173`; if the dev server runs on another port, set `ORIGIN`
@@ -110,6 +114,10 @@ Set these in the Compose service's environment and deploy:
 | `EXTERNAL_S3_FORCE_PATH_STYLE` | `false` if the provider wants `bucket.host` addressing; leave unset otherwise |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the key pair for that bucket |
 | `GARAGE_REPLICAS` | `0`, so the bundled Garage is not started |
+
+`STORAGE_PUBLIC_URL` can then be left unset: browsers upload to
+`EXTERNAL_S3_ENDPOINT` itself. The provider must allow cross-origin rules to be
+set on the bucket; the web app sets them at startup.
 
 With `EXTERNAL_S3_ENDPOINT` set, the `garage-init` job exits without doing
 anything, and the `GARAGE_*` secrets are no longer needed.
