@@ -114,8 +114,6 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
       # The public address of the site, e.g. https://videos.example.com. Forms are rejected without it.
       ORIGIN: ${ORIGIN:?set ORIGIN}
-      # Uploads are streamed straight to storage, so the default 512 KB cap must go.
-      BODY_SIZE_LIMIT: Infinity
       PORT: 3000
     depends_on:
       migrate:

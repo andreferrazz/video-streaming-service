@@ -1,22 +1,35 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { formatBytes } from '#lib/format.ts';
 	import { SITE_NAME } from '#lib/site.ts';
+	import {
+		createUploader,
+		hasUnfinishedUpload,
+		type UploadProgress,
+		type Uploader
+	} from '#lib/upload.ts';
 
 	let title = $state('');
 	let files = $state<FileList>();
-	let progress = $state<number | null>(null);
-	let message = $state('');
 	let dragging = $state(false);
+	let message = $state('');
+	let progress = $state<UploadProgress | null>(null);
 	let picker: HTMLInputElement;
+	let uploader: Uploader | undefined;
 
 	const file = $derived(files?.[0]);
-	const uploading = $derived(progress !== null);
-
-	function formatSize(bytes: number) {
-		if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-		if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-		return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
-	}
+	// From the moment Upload is pressed until it is done, cancelled or the file is changed.
+	const active = $derived(progress !== null && progress.state !== 'done');
+	const sending = $derived(
+		progress !== null && ['starting', 'uploading', 'finishing'].includes(progress.state)
+	);
+	const percent = $derived(
+		progress && progress.totalBytes > 0
+			? Math.min(100, Math.floor((progress.uploadedBytes / progress.totalBytes) * 100))
+			: 0
+	);
+	// A file whose earlier upload was interrupted can be continued, not started again.
+	const canResume = $derived(file ? hasUnfinishedUpload(file) : false);
 
 	// Suggest a title from the file name, unless one was already typed.
 	$effect(() => {
@@ -25,10 +38,25 @@
 		}
 	});
 
+	// Closing the tab mid-upload loses nothing that is already stored, but the
+	// visitor should know the upload stops.
+	$effect(() => {
+		if (!sending) return;
+		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+		window.addEventListener('beforeunload', warn);
+		return () => window.removeEventListener('beforeunload', warn);
+	});
+
+	beforeNavigate((navigation) => {
+		if (sending && !confirm('An upload is in progress. Leave anyway? You can resume it later.')) {
+			navigation.cancel();
+		}
+	});
+
 	function drop(event: DragEvent) {
 		event.preventDefault();
 		dragging = false;
-		if (uploading) return;
+		if (active) return;
 
 		const dropped = event.dataTransfer?.files;
 		if (!dropped?.length) return;
@@ -42,45 +70,47 @@
 		files = dropped;
 	}
 
+	async function run() {
+		const id = await uploader?.start();
+		if (id) goto('/admin');
+	}
+
 	function upload(event: SubmitEvent) {
 		event.preventDefault();
-		if (!file) return;
+		if (!file || active) return;
 
 		message = '';
-		progress = 0;
-
-		// fetch cannot report upload progress, so this uses XMLHttpRequest.
-		const request = new XMLHttpRequest();
-		request.open('POST', `/admin/videos?title=${encodeURIComponent(title)}`);
-		request.setRequestHeader('content-type', file.type || 'application/octet-stream');
-
-		request.upload.onprogress = (e) => {
-			if (e.lengthComputable) progress = Math.round((e.loaded / e.total) * 100);
-		};
-
-		request.onload = () => {
-			progress = null;
-			if (request.status === 201) {
-				goto('/admin');
-			} else {
-				// The server explains what went wrong, for example that storage is full.
-				let reason = '';
-				try {
-					reason = JSON.parse(request.responseText).message ?? '';
-				} catch {
-					// Not JSON; fall back to the status code below.
-				}
-				message = reason || `Upload failed (${request.status}).`;
-			}
-		};
-
-		request.onerror = () => {
-			progress = null;
-			message = 'Upload failed: the connection was lost.';
-		};
-
-		request.send(file);
+		uploader = createUploader(file, title, (next) => (progress = next));
+		run();
 	}
+
+	function pause() {
+		uploader?.pause();
+	}
+
+	async function cancel() {
+		await uploader?.cancel();
+		uploader = undefined;
+		progress = null;
+	}
+
+	const status = $derived.by(() => {
+		if (!progress) return '';
+		switch (progress.state) {
+			case 'starting':
+				return 'Getting ready…';
+			case 'uploading':
+				return `Uploading… ${percent}%`;
+			case 'paused':
+				return `Paused at ${percent}%`;
+			case 'finishing':
+				return 'Checking the file arrived intact…';
+			case 'failed':
+				return `Stopped at ${percent}%`;
+			default:
+				return 'Done';
+		}
+	});
 </script>
 
 <svelte:head>
@@ -91,7 +121,9 @@
 	<a class="back" href="/admin">← Library</a>
 	<h1>Upload a video</h1>
 	<p class="muted">
-		It is stored first, then converted into several qualities. You can publish it once that is done.
+		The file goes straight to storage in pieces, so a dropped connection only costs the piece that
+		was on its way. It is then converted into several qualities, and you can publish it once that
+		is done.
 	</p>
 
 	<form class="card" onsubmit={upload}>
@@ -99,9 +131,10 @@
 			class="drop"
 			class:dragging
 			class:chosen={file}
+			class:locked={active}
 			ondragover={(event) => {
 				event.preventDefault();
-				dragging = true;
+				if (!active) dragging = true;
 			}}
 			ondragleave={() => (dragging = false)}
 			ondrop={drop}
@@ -113,12 +146,14 @@
 				accept="video/*"
 				bind:files
 				required
-				disabled={uploading}
+				disabled={active}
 			/>
 			<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path d="M12 16V5m0 0l-4.5 4.5M12 5l4.5 4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
 			{#if file}
 				<strong>{file.name}</strong>
-				<span class="muted">{formatSize(file.size)} · click to choose another</span>
+				<span class="muted">
+					{formatBytes(file.size)}{active ? '' : ' · click to choose another'}
+				</span>
 			{:else}
 				<strong>Drop a video here</strong>
 				<span class="muted">or click to choose a file</span>
@@ -127,23 +162,51 @@
 
 		<label class="field">
 			<span>Title</span>
-			<input class="input" bind:value={title} required maxlength="200" disabled={uploading} />
+			<input class="input" bind:value={title} required maxlength="200" disabled={active} />
 		</label>
+
+		{#if canResume && !active}
+			<p class="notice">
+				An earlier upload of this file was interrupted. Pressing the button carries on from where
+				it stopped.
+			</p>
+		{/if}
 
 		{#if message}
 			<p class="notice error" role="alert">{message}</p>
 		{/if}
 
-		{#if progress !== null}
+		{#if progress}
 			<div class="progress" role="status">
-				<div class="meter"><span style:width="{progress}%"></span></div>
-				<span>{progress === 100 ? 'Storing the file…' : `Uploading… ${progress}%`}</span>
+				<div class="meter"><span style:width="{percent}%"></span></div>
+				<div class="figures">
+					<span>{status}</span>
+					<span>{formatBytes(progress.uploadedBytes)} of {formatBytes(progress.totalBytes)}</span>
+				</div>
+				{#if progress.resumed && progress.state === 'uploading'}
+					<span class="muted">Carrying on from an earlier upload.</span>
+				{/if}
 			</div>
 		{/if}
 
+		{#if progress?.state === 'failed'}
+			<p class="notice error" role="alert">{progress.message}</p>
+		{/if}
+
 		<div class="submit">
-			<button class="button" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</button>
-			<a class="button ghost" href="/admin" aria-disabled={uploading}>Cancel</a>
+			{#if !active}
+				<button class="button">{canResume ? 'Resume upload' : 'Upload'}</button>
+				<a class="button ghost" href="/admin">Back</a>
+			{:else}
+				{#if progress?.state === 'uploading' || progress?.state === 'starting'}
+					<button class="button ghost" type="button" onclick={pause}>Pause</button>
+				{:else if progress?.state === 'paused' || progress?.state === 'failed'}
+					<button class="button" type="button" onclick={run}>Resume</button>
+				{/if}
+				{#if progress?.state !== 'finishing'}
+					<button class="button danger" type="button" onclick={cancel}>Cancel upload</button>
+				{/if}
+			{/if}
 		</div>
 	</form>
 </section>
@@ -201,9 +264,9 @@
 		overflow-wrap: anywhere;
 	}
 
-	.drop:hover,
+	.drop:not(.locked):hover,
 	.drop.dragging,
-	.drop:focus-within {
+	.drop:not(.locked):focus-within {
 		border-color: var(--accent);
 		background: rgb(255 180 84 / 0.06);
 		color: var(--accent);
@@ -214,6 +277,10 @@
 		color: var(--success);
 	}
 
+	.drop.locked {
+		cursor: default;
+	}
+
 	.progress {
 		display: grid;
 		gap: 0.5rem;
@@ -222,13 +289,16 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.submit {
+	.figures {
 		display: flex;
-		gap: 0.75rem;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: 0.25rem 1rem;
 	}
 
-	[aria-disabled='true'] {
-		pointer-events: none;
-		opacity: 0.5;
+	.submit {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
 	}
 </style>

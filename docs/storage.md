@@ -12,7 +12,6 @@ and the worker call its functions and never touch the S3 library themselves.
 
 | Function | Used for | S3 operations |
 |---|---|---|
-| `uploadStream` | storing an upload as it arrives | multipart upload |
 | `uploadFile` | storing a segment, playlist or poster | `PutObject` |
 | `downloadToFile` | fetching an original to transcode | `GetObject` |
 | `openObject` | streaming a file to a player | `GetObject` |
@@ -31,7 +30,8 @@ versioning, lifecycle rules, bucket notifications or any provider's own
 extensions.
 
 The direct-upload functions in the lower half are used by the upload endpoints
-under `/admin/uploads`. The upload page does not use those endpoints yet.
+under `/admin/uploads`, which the upload page drives. See
+[Direct uploads](#direct-uploads) below.
 
 One client setting matters for any provider: checksums are only added where S3
 requires them. By default the S3 library signs a checksum into every upload
@@ -39,6 +39,38 @@ address, which a browser sending a part cannot supply, and the upload is refused
 with "Invalid digest".
 
 The file layout is in the [README](../README.md#files-in-the-bucket).
+
+## Direct uploads
+
+A video is uploaded by the browser straight to storage, in parts. The web app
+coordinates but no file data passes through it.
+
+1. **Start.** The browser sends the title, size and type. The app reserves room,
+   opens a multipart upload and answers with the part size and count.
+2. **Send.** The browser asks for signed addresses a few at a time and sends four
+   parts at once. A failed part is retried with growing pauses; an expired
+   address is replaced.
+3. **Finish.** The browser says it is done. The app asks storage which parts it
+   holds and assembles the file only if every part is present at exactly the
+   right size. If not, it names the parts still needed and the browser sends them.
+4. **Resume.** The browser remembers the upload by the file's name, size and
+   date. Choosing the same file again, even after a reload, continues from the
+   parts already stored.
+5. **Abandon.** The worker discards uploads with no activity for
+   `UPLOAD_EXPIRY_HOURS` and releases their room.
+
+Two things this needs from storage, beyond the operations above:
+
+- **Browsers must be able to reach it.** Signed addresses are made for
+  `S3_PUBLIC_ENDPOINT`, or for `S3_ENDPOINT` when that is not set. Locally the
+  browser reaches Garage on `localhost:3900` directly.
+- **It must allow the site's pages to upload.** The web app sets the bucket's
+  cross-origin rules at startup, for the origin in `ORIGIN`. Locally that defaults
+  to `http://localhost:5173`; if the dev server runs on another port, set `ORIGIN`
+  to match or uploads are blocked by the browser.
+
+The bucket stays private. A signed address permits sending one part of one
+upload, for an hour.
 
 ## Checking a provider
 

@@ -18,7 +18,6 @@ import {
 	S3Client,
 	UploadPartCommand
 } from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export interface StorageConfig {
@@ -87,26 +86,6 @@ export class StorageFullError extends Error {
 /** Where the original upload of a video is kept. */
 export function sourceKey(videoId: string) {
 	return `sources/${videoId}`;
-}
-
-/**
- * Stream a body of unknown length into the bucket. The upload is split into
- * parts, so memory use stays flat however large the file is.
- */
-export async function uploadStream(
-	storage: Storage,
-	key: string,
-	body: ReadableStream<Uint8Array>,
-	contentType: string
-) {
-	const upload = new Upload({
-		client: storage.client,
-		params: { Bucket: storage.bucket, Key: key, Body: body, ContentType: contentType },
-		partSize: 16 * 1024 * 1024,
-		queueSize: 2
-	});
-
-	await upload.done();
 }
 
 /** Folder that holds the HLS playlists and segments of a video. */

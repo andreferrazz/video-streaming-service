@@ -41,11 +41,12 @@ flowchart LR
     end
 
     viewer -- "pages, playlists, segments" --> proxy
-    admin -- "uploads, management" --> proxy
+    admin -- "management" --> proxy
+    admin -- "video files, in parts" --> garage
     proxy --> webapp
 
     webapp -- "read and write videos" --> postgres
-    webapp -- "store originals,<br/>read HLS and posters" --> garage
+    webapp -- "sign uploads,<br/>read HLS and posters" --> garage
     worker -- "claim queued videos,<br/>report progress" --> postgres
     worker -- "read originals,<br/>store HLS and posters" --> garage
 
@@ -63,7 +64,7 @@ the bucket.
 
 | Part | What it does |
 |---|---|
-| **webapp** | Serves every page, receives uploads and streams them into storage, and streams playlists, segments and posters back out to players. |
+| **webapp** | Serves every page, coordinates uploads that browsers send straight to storage, and streams playlists, segments and posters out to players. |
 | **worker** | Has no web server. Polls for queued videos, transcodes each with ffmpeg and stores the result. |
 | **Postgres** | One `videos` table. Its `status` column doubles as the job queue. |
 | **Garage** | Holds the original uploads, the HLS output and the posters in one private bucket. Replaceable by any S3-compatible storage; see [docs/storage.md](docs/storage.md). |
@@ -75,8 +76,8 @@ the bucket.
 ```mermaid
 stateDiagram-v2
     [*] --> uploading: admin starts an upload
-    uploading --> queued: file stored in the bucket
-    uploading --> failed: upload broke
+    uploading --> queued: all parts in the bucket
+    uploading --> [*]: cancelled or abandoned
     queued --> processing: worker claims it
     processing --> ready: HLS and poster stored
     processing --> failed: ffmpeg or storage error
@@ -272,9 +273,13 @@ How the site behaves under very high traffic, with and without a CDN, is written
 up separately: [the home page alone](docs/home-page-scaling.md), and
 [a full visit including video](docs/full-visit-scaling.md).
 
-- **Uploads and playback go through the web app**, not straight to the bucket.
-  That keeps Garage private and needs no cross-origin setup. The cost is that all
-  video traffic passes through the web app container.
+- **Uploads go from the browser straight to storage**, in parts, and can resume
+  after a dropped connection or a reload. The web app only coordinates; see
+  [docs/storage.md](docs/storage.md#direct-uploads). Storage therefore has to be
+  reachable from browsers, though the bucket stays private.
+- **Playback goes through the web app**, not straight to the bucket, so that it
+  can decide per request whether a video is published. The cost is that all
+  viewing traffic passes through the web app container.
 - **The home page and published watch pages are the same for every visitor** and
   say so in their headers, so a shared cache such as a CDN may reuse one copy for
   30 seconds. The admin link in
