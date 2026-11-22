@@ -96,7 +96,8 @@ A video in `ready` is visible only to the admin until it is published. Publishin
 is a separate switch (`published_at`), not a status.
 
 The worker produces up to four renditions, 1080p, 720p, 480p and 360p, and never
-one larger than the source. Each is cut into 4-second segments that line up across
+one larger than the source. They all come out of a single ffmpeg run, so the
+source is decoded once however many renditions there are. Each is cut into 4-second segments that line up across
 renditions, so a player can change quality at any segment boundary.
 
 ### Files in the bucket
@@ -217,7 +218,7 @@ Compose service's environment on the server.
 | `S3_PUBLIC_ENDPOINT` | webapp | The address browsers use to reach storage, if different from `S3_ENDPOINT`. Signed upload addresses are made for it |
 | `UPLOAD_MAX_GB` | webapp | The largest single file accepted. Defaults to 20 |
 | `UPLOAD_EXPIRY_HOURS` | worker | An unfinished upload with no activity for this long is discarded. Defaults to 24 |
-| `WORKER_REPLICAS` | Compose | How many workers run. Defaults to 1; each may use 2 cores and 2 GB |
+| `WORKER_REPLICAS` | Compose | How many workers run. Defaults to 1; each may use 2 cores and 3 GB |
 | `WORKER_LEASE_SECONDS` | worker | How long a worker's claim on a video lasts without renewal. Defaults to 60; a dead worker's video is taken over after this long |
 | `WORKER_MAX_ATTEMPTS` | worker | A video that has taken its worker down this many times is given up on. Defaults to 3 |
 | `ADMIN_PASSWORD` | webapp | The single admin password |
@@ -235,7 +236,7 @@ Every service has a CPU and memory limit in `compose.yaml`, sized for a 6-core,
 
 | Service | CPU | Memory |
 |---|---|---|
-| worker | 2 cores | 2 GB |
+| worker | 2 cores | 3 GB |
 | webapp | 1.5 cores | 768 MB |
 | postgres | 1 core | 512 MB |
 | garage | 1 core | 512 MB |
